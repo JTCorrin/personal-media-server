@@ -1,0 +1,7 @@
+build/
+media-server
+main
+*.db
+*.log
+compile_commands.json
+ADVICE.md

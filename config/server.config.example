@@ -1,0 +1,6 @@
+# Log output
+log.level = debug
+log.terminal = true
+log.file = /var/log/media-server/app.log
+log.db = /var/lib/media-server/logs.db
+log.db_table = app_logs
