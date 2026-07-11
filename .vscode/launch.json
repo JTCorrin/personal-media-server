@@ -1,0 +1,30 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug test_router",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/test_router",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "debug: build test_router"
+        },
+        {
+            "name": "Debug test_log",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/test_log",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "debug: build test_log"
+        },
+        {
+            "name": "Debug media-server",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/media-server",
+            "args": ["--listen", "http://127.0.0.1:8080", "--log-level", "debug"],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "debug: build media-server"
+        }
+    ]
+}

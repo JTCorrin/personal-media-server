@@ -1,29 +1,52 @@
 CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L -Iinclude -Isrc
+BASE_CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L \
+	-Iinclude -Isrc -Ithird_party/mongoose
+CFLAGS ?= $(BASE_CFLAGS)
 LDFLAGS ?= -lsqlite3 -lpthread
+
+ifeq ($(DEBUG),1)
+CFLAGS += -g -O0
+endif
 
 UNITY_DIR := third_party/Unity/src
 UNITY_SRC := $(UNITY_DIR)/unity.c
 UNITY_CFLAGS := -I$(UNITY_DIR)
 
+MONGOOSE_SRC := third_party/mongoose/mongoose.c
+MONGOOSE_OBJ := build/third_party/mongoose.o
+# Mongoose is a vendored amalgamation; keep its warnings quieter.
+MONGOOSE_CFLAGS := -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+	-Ithird_party/mongoose
+
 TARGET := media-server
-SRCS := $(shell find src -name '*.c')
-OBJS := $(SRCS:src/%.c=build/%.o)
+APP_SRCS := $(filter-out src/main.c,$(shell find src -name '*.c'))
+APP_OBJS := $(APP_SRCS:src/%.c=build/%.o)
+MAIN_OBJ := build/main.o
 
 TEST_SRCS := $(wildcard tests/test_*.c)
-TEST_BINS := $(TEST_SRCS:tests/test_%.c=build/tests/test_%)
+
+# Suites included in `make test`. Add a name here when its UNIT_*_SRCS and tests are ready.
+TEST_UNITS := log router routes
+TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
 
 # Production sources linked into each test executable (UNIT_<name>_SRCS).
 UNIT_log_SRCS := src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
+UNIT_router_SRCS := src/http/router.c
+UNIT_routes_SRCS := src/api/routes.c src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
+	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 
-.PHONY: all clean run test compile_commands.json
+.PHONY: all clean run test smoke compile_commands.json
 
 .SECONDEXPANSION:
 
 all: compile_commands.json $(TARGET)
 
-$(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+$(TARGET): $(MAIN_OBJ) $(APP_OBJS) $(MONGOOSE_OBJ)
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+$(MONGOOSE_OBJ): $(MONGOOSE_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(MONGOOSE_CFLAGS) -c $< -o $@
 
 build/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -41,14 +64,24 @@ test: $(TEST_BINS)
 	done; \
 	exit $$failed
 
-compile_commands.json: $(SRCS) $(TEST_SRCS) Makefile
+smoke: $(TARGET)
+	@chmod +x scripts/smoke_http.sh
+	./scripts/smoke_http.sh
+
+compile_commands.json: $(APP_SRCS) src/main.c $(TEST_SRCS) Makefile
 	@printf '[' > compile_commands.json
 	@first=1; \
-	for src in $(SRCS) $(TEST_SRCS); do \
+	for src in $(APP_SRCS) src/main.c; do \
 		if [ $$first -eq 0 ]; then printf ',\n' >> compile_commands.json; fi; \
 		first=0; \
 		printf '  {"directory":"%s","command":"%s %s -c %s","file":"%s/%s"}' \
 			"$(CURDIR)" "$(CC)" "$(CFLAGS)" "$$src" "$(CURDIR)" "$$src" >> compile_commands.json; \
+	done; \
+	for src in $(TEST_SRCS); do \
+		if [ $$first -eq 0 ]; then printf ',\n' >> compile_commands.json; fi; \
+		first=0; \
+		printf '  {"directory":"%s","command":"%s %s %s -c %s","file":"%s/%s"}' \
+			"$(CURDIR)" "$(CC)" "$(CFLAGS)" "$(UNITY_CFLAGS)" "$$src" "$(CURDIR)" "$$src" >> compile_commands.json; \
 	done; \
 	printf '\n]\n' >> compile_commands.json
 

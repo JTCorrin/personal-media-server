@@ -7,3 +7,5 @@ CompileFlags:
     - -D_POSIX_C_SOURCE=200809L
     - -Iinclude
     - -Isrc
+    - -Ithird_party/Unity/src
+    - -Ithird_party/mongoose

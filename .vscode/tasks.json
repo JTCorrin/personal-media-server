@@ -1,0 +1,26 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "debug: build test_router",
+            "type": "shell",
+            "command": "make -B DEBUG=1 build/tests/test_router",
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "debug: build test_log",
+            "type": "shell",
+            "command": "make -B DEBUG=1 build/tests/test_log",
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "debug: build media-server",
+            "type": "shell",
+            "command": "make -B DEBUG=1 media-server",
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        }
+    ]
+}
