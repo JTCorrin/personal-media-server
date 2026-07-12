@@ -1,15 +1,13 @@
 #ifndef MEDIA_SERVER_MEDIA_FILE_H
 #define MEDIA_SERVER_MEDIA_FILE_H
 
-#include "media_server/media/kind.h"
-
 #include <stddef.h>
 
 /*
- * MIME type for a catalog item. Uses extension when helpful; falls back by kind.
- * Never returns NULL.
+ * MIME type for a catalog item, derived from the path's extension.
+ * Falls back to "application/octet-stream". Never returns NULL.
  */
-const char *media_content_type(media_kind_t kind, const char *path);
+const char *media_content_type(const char *path);
 
 /*
  * Join library_root + rel_path into out.

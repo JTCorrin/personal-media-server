@@ -63,6 +63,22 @@ log_level_t log_level_from_string(const char *name, bool *ok)
     return LOG_INFO;
 }
 
+/*
+ * Logged messages often embed untrusted data (e.g. request URIs). Control
+ * characters could inject ANSI escape sequences into the terminal or forge
+ * extra log lines, so replace them with '?' to keep records single-line and
+ * escape-free.
+ */
+static void sanitize_message(char *message)
+{
+    for (char *p = message; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c < 0x20 || c == 0x7f) {
+            *p = '?';
+        }
+    }
+}
+
 void log_format_record(log_record_t *record, log_level_t level, const char *module,
                        const char *fmt, va_list args)
 {
@@ -93,6 +109,8 @@ void log_format_record(log_record_t *record, log_level_t level, const char *modu
         memcpy(record->message + offset, "...", suffix_len);
         record->message[sizeof(record->message) - 1] = '\0';
     }
+
+    sanitize_message(record->message);
 }
 
 static void terminal_write(log_sink_t *sink, const log_record_t *record)
@@ -239,6 +257,13 @@ void log_shutdown(void)
     pthread_mutex_unlock(&g_log.lock);
 }
 
+/*
+ * Deliberately reads g_log without taking the lock: this runs on every log
+ * call and the fields only change in log_init/log_shutdown. That makes it a
+ * benign race in this single-threaded server, but if logging config ever
+ * becomes mutable at runtime from other threads, this needs the lock (or
+ * atomics).
+ */
 bool log_is_enabled(log_level_t level)
 {
     return g_log.initialized && level >= g_log.min_level;

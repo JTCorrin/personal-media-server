@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-const char *media_content_type(media_kind_t kind, const char *path)
+const char *media_content_type(const char *path)
 {
     if (path_has_extension(path, "mp3")) {
         return "audio/mpeg";
@@ -30,13 +30,6 @@ const char *media_content_type(media_kind_t kind, const char *path)
     }
     if (path_has_extension(path, "webp")) {
         return "image/webp";
-    }
-
-    if (kind == MEDIA_KIND_AUDIO) {
-        return "application/octet-stream";
-    }
-    if (kind == MEDIA_KIND_IMAGE) {
-        return "application/octet-stream";
     }
 
     return "application/octet-stream";

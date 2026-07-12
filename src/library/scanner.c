@@ -9,11 +9,25 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *catalog)
+/*
+ * Hard cap on directory nesting. Each recursion level uses ~1.5 KB of stack
+ * for the path buffers, and without a cap a symlink cycle or an adversarial
+ * deep tree could exhaust the stack.
+ */
+#define SCANNER_MAX_DEPTH 32
+
+static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *catalog,
+                    int depth)
 {
     char abs_dir[CATALOG_PATH_MAX];
     DIR *dir;
     struct dirent *entry;
+
+    if (depth > SCANNER_MAX_DEPTH) {
+        LOG_WARN("scanner", "skipping %s: max depth (%d) exceeded", rel_dir,
+                 SCANNER_MAX_DEPTH);
+        return 0;
+    }
 
     if (rel_dir[0] == '\0') {
         if (strlen(library_root) >= sizeof(abs_dir)) {
@@ -54,14 +68,29 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
             continue;
         }
 
-        if (stat(child_abs, &st) != 0) {
+        /*
+         * lstat (not stat) so symlinks are seen as symlinks and skipped.
+         * Following them would let a link inside the library expose files
+         * outside the library root, and a directory link cycle would recurse
+         * forever.
+         */
+        if (lstat(child_abs, &st) != 0) {
+            continue;
+        }
+
+        if (S_ISLNK(st.st_mode)) {
+            LOG_DEBUG("scanner", "skipping symlink %s", child_rel);
             continue;
         }
 
         if (S_ISDIR(st.st_mode)) {
-            if (scan_dir(library_root, child_rel, catalog) != 0) {
-                closedir(dir);
-                return -1;
+            /*
+             * A subdirectory that cannot be scanned (e.g. permission denied)
+             * should not fail the whole library scan; scan_dir already logged
+             * the reason. Only the root failing is a hard error (see below).
+             */
+            if (scan_dir(library_root, child_rel, catalog, depth + 1) != 0) {
+                LOG_WARN("scanner", "skipping unreadable directory %s", child_rel);
             }
             continue;
         }
@@ -90,5 +119,5 @@ int scanner_scan(const char *library_root, catalog_t *catalog)
         return -1;
     }
 
-    return scan_dir(library_root, "", catalog);
+    return scan_dir(library_root, "", catalog, 0);
 }

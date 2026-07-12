@@ -1,6 +1,8 @@
 #include "unity.h"
 #include "media_server/util/log.h"
+#include "util/log_internal.h"
 
+#include <stdarg.h>
 #include <stdbool.h>
 
 void setUp(void) {}
@@ -78,6 +80,24 @@ void test_log_init_enables_configured_level(void)
     TEST_ASSERT_FALSE(log_is_enabled(LOG_DEBUG));
 }
 
+static void format_record_helper(log_record_t *record, const char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    log_format_record(record, LOG_INFO, "test", fmt, args);
+    va_end(args);
+}
+
+void test_log_format_record_strips_control_chars(void)
+{
+    log_record_t record;
+
+    /* ANSI escape + newline injection must not survive into the record. */
+    format_record_helper(&record, "GET %s", "/\x1b[31mfake\nINFO forged");
+    TEST_ASSERT_EQUAL_STRING("GET /?[31mfake?INFO forged", record.message);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -89,5 +109,6 @@ int main(void)
     RUN_TEST(test_log_level_name_returns_unknown_for_invalid_level);
     RUN_TEST(test_log_is_enabled_requires_init);
     RUN_TEST(test_log_init_enables_configured_level);
+    RUN_TEST(test_log_format_record_strips_control_chars);
     return UNITY_END();
 }

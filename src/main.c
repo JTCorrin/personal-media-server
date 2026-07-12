@@ -18,6 +18,25 @@ static void on_signal(int signo)
     g_stop = 1;
 }
 
+/*
+ * sigaction over signal(): signal() has implementation-defined semantics
+ * (handler reset, syscall restart). With sa_flags = 0 blocking calls like
+ * poll() are interrupted (EINTR), so the main loop notices g_stop promptly.
+ */
+static int install_signal_handlers(void)
+{
+    struct sigaction sa = {0};
+
+    sa.sa_handler = on_signal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGINT, &sa, NULL) != 0 || sigaction(SIGTERM, &sa, NULL) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     app_config_t config;
@@ -36,8 +55,10 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    signal(SIGINT, on_signal);
-    signal(SIGTERM, on_signal);
+    if (install_signal_handlers() != 0) {
+        fprintf(stderr, "failed to install signal handlers\n");
+        return 1;
+    }
 
     if (log_init(&config.log) != 0) {
         fprintf(stderr, "failed to initialize logging\n");

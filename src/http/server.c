@@ -127,6 +127,7 @@ void http_reply_text(void *res, int status, const char *content_type, const char
 {
     struct mg_connection *c = (struct mg_connection *)res;
     char headers[128];
+    int n;
 
     if (c == NULL) {
         return;
@@ -139,7 +140,13 @@ void http_reply_text(void *res, int status, const char *content_type, const char
         body = "";
     }
 
-    snprintf(headers, sizeof(headers), "Content-Type: %s\r\n", content_type);
+    /* A truncated header would lose its trailing \r\n and corrupt the
+     * response, so fall back to a safe default instead. */
+    n = snprintf(headers, sizeof(headers), "Content-Type: %s\r\n", content_type);
+    if (n < 0 || (size_t)n >= sizeof(headers)) {
+        snprintf(headers, sizeof(headers), "Content-Type: text/plain\r\n");
+    }
+
     mg_http_reply(c, status, headers, "%s", body);
 }
 
@@ -167,8 +174,11 @@ void http_reply_file(void *req, void *res, const char *abs_path, const char *con
 
     memset(&opts, 0, sizeof(opts));
     if (content_type != NULL && content_type[0] != '\0') {
-        snprintf(extra, sizeof(extra), "Content-Type: %s\r\n", content_type);
-        opts.extra_headers = extra;
+        int n = snprintf(extra, sizeof(extra), "Content-Type: %s\r\n", content_type);
+        /* Only attach the header if it fit; truncation would corrupt it. */
+        if (n > 0 && (size_t)n < sizeof(extra)) {
+            opts.extra_headers = extra;
+        }
     }
 
     mg_http_serve_file(c, hm, abs_path, &opts);

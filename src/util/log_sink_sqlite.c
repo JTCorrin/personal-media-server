@@ -1,5 +1,6 @@
 #include "util/log_internal.h"
 
+#include <ctype.h>
 #include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,31 @@ typedef struct {
     sqlite3_stmt *insert_stmt;
     char table[128];
 } sqlite_sink_ctx_t;
+
+/*
+ * Table names cannot be bound as `?` parameters, so before interpolating the
+ * name into SQL we restrict it to a safe identifier: [A-Za-z_][A-Za-z0-9_]*.
+ * Without this, a table name like `x (id); DROP TABLE logs; --` would be
+ * executed verbatim.
+ */
+static bool is_valid_table_name(const char *table)
+{
+    if (table == NULL || table[0] == '\0') {
+        return false;
+    }
+
+    if (!isalpha((unsigned char)table[0]) && table[0] != '_') {
+        return false;
+    }
+
+    for (const char *p = table + 1; *p != '\0'; p++) {
+        if (!isalnum((unsigned char)*p) && *p != '_') {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 static int ensure_log_table(sqlite3 *db, const char *table)
 {
@@ -98,6 +124,14 @@ log_sink_t *log_sink_sqlite_create(const char *db_path, const char *table)
 
     if (table == NULL || table[0] == '\0') {
         table = LOG_DEFAULT_SQLITE_TABLE;
+    }
+
+    if (!is_valid_table_name(table) || strlen(table) >= sizeof(ctx->table)) {
+        fprintf(stderr,
+                "log: invalid sqlite table name '%s' "
+                "(want [A-Za-z_][A-Za-z0-9_]*, max %zu chars)\n",
+                table, sizeof(ctx->table) - 1);
+        return NULL;
     }
 
     sink = calloc(1, sizeof(*sink));

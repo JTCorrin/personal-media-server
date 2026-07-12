@@ -1,12 +1,24 @@
 CC ?= gcc
-BASE_CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L \
+# -MMD -MP emits a .d makefile fragment per object so header edits trigger
+# rebuilds of the objects that include them (see the -include at the bottom).
+BASE_CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O2 -MMD -MP \
+	-D_POSIX_C_SOURCE=200809L \
 	-Iinclude -Isrc -Ithird_party/mongoose
 CFLAGS ?= $(BASE_CFLAGS)
-LDFLAGS ?= -lsqlite3 -lpthread
+# LDFLAGS = linker options (e.g. -fsanitize), LDLIBS = libraries. Keeping them
+# separate matters because libraries must come after objects on the link line.
+LDFLAGS ?=
+LDLIBS ?= -lsqlite3 -lpthread
 
 ifeq ($(DEBUG),1)
 CFLAGS += -g -O0
 endif
+
+# Appended after any DEBUG handling; used by the test-asan target.
+CFLAGS += $(EXTRA_CFLAGS)
+LDFLAGS += $(EXTRA_LDFLAGS)
+
+SANITIZE_FLAGS := -g -O1 -fsanitize=address,undefined
 
 UNITY_DIR := third_party/Unity/src
 UNITY_SRC := $(UNITY_DIR)/unity.c
@@ -26,7 +38,7 @@ MAIN_OBJ := build/main.o
 TEST_SRCS := $(wildcard tests/test_*.c)
 
 # Suites included in `make test`. Add a name here when its UNIT_*_SRCS and tests are ready.
-TEST_UNITS := log router routes config path media_kind catalog scanner media_file
+TEST_UNITS := log router routes config path media_kind catalog scanner media_file string_buf
 TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
 
 # Production sources linked into each test executable (UNIT_<name>_SRCS).
@@ -34,6 +46,7 @@ UNIT_log_SRCS := src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlit
 UNIT_router_SRCS := src/http/router.c
 UNIT_routes_SRCS := src/api/routes.c src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
 	src/library/catalog.c src/media/kind.c src/media/file.c src/util/path.c \
+	src/util/string_buf.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_config_SRCS := src/config.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_path_SRCS := src/util/path.c
@@ -42,15 +55,16 @@ UNIT_media_file_SRCS := src/media/file.c src/media/kind.c src/util/path.c
 UNIT_catalog_SRCS := src/library/catalog.c src/media/kind.c src/util/path.c
 UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.c \
 	src/util/path.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
+UNIT_string_buf_SRCS := src/util/string_buf.c
 
-.PHONY: all clean run test smoke smoke-library smoke-stream compile_commands.json
+.PHONY: all clean run test test-asan smoke smoke-library smoke-stream compile_commands.json
 
 .SECONDEXPANSION:
 
 all: compile_commands.json $(TARGET)
 
 $(TARGET): $(MAIN_OBJ) $(APP_OBJS) $(MONGOOSE_OBJ)
-	$(CC) $^ -o $@ $(LDFLAGS)
+	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(MONGOOSE_OBJ): $(MONGOOSE_SRC)
 	@mkdir -p $(dir $@)
@@ -62,7 +76,7 @@ build/%.o: src/%.c
 
 build/tests/test_%: tests/test_%.c $$(UNIT_%_SRCS) $(UNITY_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(UNITY_CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(UNITY_CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 test: $(TEST_BINS)
 	@failed=0; \
@@ -71,6 +85,13 @@ test: $(TEST_BINS)
 		$$t || failed=1; \
 	done; \
 	exit $$failed
+
+# Rebuild everything with AddressSanitizer + UBSan and run the tests.
+# Cleans first (and afterwards leaves sanitized objects behind), so run
+# `make clean` before going back to normal builds.
+test-asan:
+	$(MAKE) clean
+	$(MAKE) test EXTRA_CFLAGS="$(SANITIZE_FLAGS)" EXTRA_LDFLAGS="-fsanitize=address,undefined"
 
 smoke: $(TARGET)
 	@chmod +x scripts/smoke_http.sh
@@ -106,3 +127,7 @@ run: $(TARGET)
 
 clean:
 	rm -rf build $(TARGET)
+
+# Auto-generated header dependencies (from -MMD -MP). The leading '-' means
+# "no error if they don't exist yet" (e.g. first build after clean).
+-include $(APP_OBJS:.o=.d) $(MAIN_OBJ:.o=.d)
