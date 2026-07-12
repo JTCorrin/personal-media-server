@@ -38,11 +38,12 @@ for _ in $(seq 1 50); do
 done
 
 tracks="$(curl -sf "${LISTEN}/api/tracks")"
-audio_id="$(printf '%s' "${tracks}" | sed -n 's/.*"id":\([0-9]*\),"kind":"audio".*/\1/p' | head -1)"
-image_id="$(printf '%s' "${tracks}" | sed -n 's/.*"id":\([0-9]*\),"kind":"image".*/\1/p' | head -1)"
+images="$(curl -sf "${LISTEN}/api/images")"
+audio_id="$(printf '%s' "${tracks}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+image_id="$(printf '%s' "${images}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
 
 if [[ -z "${audio_id}" || -z "${image_id}" ]]; then
-  echo "failed to resolve audio/image ids from: ${tracks}" >&2
+  echo "failed to resolve audio/image ids from tracks=${tracks} images=${images}" >&2
   exit 1
 fi
 

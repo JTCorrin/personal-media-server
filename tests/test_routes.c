@@ -23,20 +23,20 @@ typedef struct {
 static const expected_route_t LIVE_ROUTES[] = {
     {"GET", "/api/ping", "/api/ping"},
     {"GET", "/api/tracks", "/api/tracks"},
+    {"GET", "/api/tracks/1", "/api/tracks/:id"},
+    {"GET", "/api/images", "/api/images"},
+    {"GET", "/api/images/1", "/api/images/:id"},
     {"GET", "/stream/1", "/stream/:id"},
     {"GET", "/cover/3", "/cover/:id"},
 };
 
 static const expected_route_t STUB_ROUTES[] = {
-    {"GET", "/api/tracks/1", "/api/tracks/:id"},
     {"GET", "/api/artists", "/api/artists"},
     {"GET", "/api/artists/1", "/api/artists/:id"},
     {"GET", "/api/artists/1/albums", "/api/artists/:id/albums"},
     {"GET", "/api/albums", "/api/albums"},
     {"GET", "/api/albums/1", "/api/albums/:id"},
     {"GET", "/api/albums/1/tracks", "/api/albums/:id/tracks"},
-    {"GET", "/api/images", "/api/images"},
-    {"GET", "/api/images/1", "/api/images/:id"},
     {"GET", "/api/search", "/api/search"},
     {"POST", "/api/library/scan", "/api/library/scan"},
     {"GET", "/api/library/status", "/api/library/status"},
@@ -125,7 +125,7 @@ void test_api_routes_register_all_stubs(void)
     }
 }
 
-void test_api_routes_tracks_list_not_swallowed_by_id_stub(void)
+void test_api_routes_tracks_list_not_swallowed_by_id(void)
 {
     router_match_t match;
 
@@ -136,6 +136,7 @@ void test_api_routes_tracks_list_not_swallowed_by_id_stub(void)
 
     TEST_ASSERT_EQUAL_INT(0, router_match(router, "GET", "/api/tracks/42", &match));
     TEST_ASSERT_EQUAL_STRING("/api/tracks/:id", match.pattern);
+    TEST_ASSERT_EQUAL_PTR(&ctx, match.user_data);
 }
 
 void test_api_routes_unknown_path_is_unmatched(void)
@@ -154,7 +155,7 @@ int main(void)
     RUN_TEST(test_api_routes_register_stream_and_cover);
     RUN_TEST(test_api_routes_register_all_live);
     RUN_TEST(test_api_routes_register_all_stubs);
-    RUN_TEST(test_api_routes_tracks_list_not_swallowed_by_id_stub);
+    RUN_TEST(test_api_routes_tracks_list_not_swallowed_by_id);
     RUN_TEST(test_api_routes_unknown_path_is_unmatched);
     return UNITY_END();
 }

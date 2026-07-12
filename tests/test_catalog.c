@@ -42,7 +42,13 @@ void test_catalog_add_assigns_monotonic_ids(void)
     TEST_ASSERT_EQUAL(MEDIA_KIND_AUDIO, a->kind);
     TEST_ASSERT_EQUAL_STRING("Artist/Album/track01.mp3", a->path);
     TEST_ASSERT_EQUAL_STRING("track01.mp3", a->filename);
+    TEST_ASSERT_EQUAL_STRING("Artist", a->artist);
+    TEST_ASSERT_EQUAL_STRING("Album", a->album);
+    TEST_ASSERT_EQUAL_STRING("track01", a->title);
     TEST_ASSERT_EQUAL_STRING("cover.jpg", b->filename);
+    TEST_ASSERT_EQUAL_STRING("Artist", b->artist);
+    TEST_ASSERT_EQUAL_STRING("Album", b->album);
+    TEST_ASSERT_EQUAL_STRING("cover", b->title);
 }
 
 void test_catalog_find_id(void)

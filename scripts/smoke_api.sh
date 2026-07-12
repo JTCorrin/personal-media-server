@@ -53,11 +53,31 @@ expect_status() {
 
 echo "==> live routes"
 expect_status GET /api/ping 200
-expect_status GET /api/tracks 200
+
+tracks="$(curl -sf "${LISTEN}/api/tracks")"
+if ! printf '%s' "${tracks}" | grep -q '"artist"'; then
+  echo "FAIL /api/tracks missing artist field: ${tracks}" >&2
+  exit 1
+fi
+echo "OK GET /api/tracks includes artist"
+
+audio_id="$(printf '%s' "${tracks}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+if [[ -z "${audio_id}" ]]; then
+  echo "FAIL could not parse audio id from: ${tracks}" >&2
+  exit 1
+fi
+expect_status GET "/api/tracks/${audio_id}" 200
+expect_status GET /api/tracks/999 404
+
+images="$(curl -sf "${LISTEN}/api/images")"
+if ! printf '%s' "${images}" | grep -q '"kind":"image"'; then
+  echo "FAIL /api/images expected image items: ${images}" >&2
+  exit 1
+fi
+echo "OK GET /api/images -> 200"
 
 echo "==> stub routes (501)"
 expect_status GET /api/artists 501
-expect_status GET /api/tracks/1 501
 expect_status GET /api/albums 501
 expect_status GET /api/search 501
 expect_status POST /api/library/scan 501

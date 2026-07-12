@@ -1,5 +1,6 @@
 #include "media_server/library/catalog.h"
 
+#include "media_server/media/path_meta.h"
 #include "media_server/util/path.h"
 
 #include <stdlib.h>
@@ -72,6 +73,11 @@ int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
     item->kind = kind;
     memcpy(item->path, rel_path, path_len + 1);
     memcpy(item->filename, base, strlen(base) + 1);
+
+    if (media_path_meta(rel_path, item->artist, sizeof(item->artist), item->album,
+                        sizeof(item->album), item->title, sizeof(item->title)) != 0) {
+        return -1;
+    }
 
     catalog->count++;
     return 0;

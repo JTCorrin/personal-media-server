@@ -8,6 +8,7 @@
 
 #define CATALOG_PATH_MAX 512
 #define CATALOG_FILENAME_MAX 256
+#define CATALOG_META_MAX 256
 
 typedef struct catalog catalog_t;
 
@@ -16,6 +17,9 @@ typedef struct catalog_item {
     media_kind_t kind;
     char path[CATALOG_PATH_MAX];         /* relative to library root */
     char filename[CATALOG_FILENAME_MAX];
+    char artist[CATALOG_META_MAX];
+    char album[CATALOG_META_MAX];
+    char title[CATALOG_META_MAX];
 } catalog_item_t;
 
 catalog_t *catalog_create(void);

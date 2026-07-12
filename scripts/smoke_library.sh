@@ -38,14 +38,21 @@ for _ in $(seq 1 50); do
 done
 
 echo "==> GET /api/tracks"
-body="$(curl -sf "${LISTEN}/api/tracks")"
+tracks="$(curl -sf "${LISTEN}/api/tracks")"
 status="$(curl -sf -o /dev/null -w '%{http_code}' "${LISTEN}/api/tracks")"
 test "${status}" = "200"
-echo "${body}" | grep -q 'track01.mp3'
-echo "${body}" | grep -q 'track02.flac'
-echo "${body}" | grep -q 'cover.jpg'
-echo "${body}" | grep -q '"kind":"audio"'
-echo "${body}" | grep -q '"kind":"image"'
-echo "OK ${status} ${body}"
+echo "${tracks}" | grep -q 'track01.mp3'
+echo "${tracks}" | grep -q '"kind":"audio"'
+echo "${tracks}" | grep -q '"artist"'
+echo "${tracks}" | grep -qv '"kind":"image"'
+echo "OK tracks ${status}"
+
+echo "==> GET /api/images"
+images="$(curl -sf "${LISTEN}/api/images")"
+img_status="$(curl -sf -o /dev/null -w '%{http_code}' "${LISTEN}/api/images")"
+test "${img_status}" = "200"
+echo "${images}" | grep -q 'cover.jpg'
+echo "${images}" | grep -q '"kind":"image"'
+echo "OK images ${img_status}"
 
 echo "smoke library: all checks passed"
