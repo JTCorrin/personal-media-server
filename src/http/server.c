@@ -160,6 +160,27 @@ void http_reply_not_found(void *res)
     http_reply_json(res, 404, "{\"error\":\"not found\"}");
 }
 
+void http_reply_not_implemented(void *res, const char *path)
+{
+    char body[256];
+    int n;
+
+    if (path == NULL || path[0] == '\0') {
+        http_reply_json(res, 501, "{\"error\":\"not_implemented\"}");
+        return;
+    }
+
+    /* Patterns are compile-time constants (no quotes), so snprintf is safe. */
+    n = snprintf(body, sizeof(body),
+                 "{\"error\":\"not_implemented\",\"path\":\"%s\"}", path);
+    if (n < 0 || (size_t)n >= sizeof(body)) {
+        http_reply_json(res, 501, "{\"error\":\"not_implemented\"}");
+        return;
+    }
+
+    http_reply_json(res, 501, body);
+}
+
 void http_reply_file(void *req, void *res, const char *abs_path, const char *content_type)
 {
     struct mg_connection *c = (struct mg_connection *)res;

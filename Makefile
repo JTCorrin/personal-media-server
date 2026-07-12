@@ -44,7 +44,9 @@ TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
 # Production sources linked into each test executable (UNIT_<name>_SRCS).
 UNIT_log_SRCS := src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_router_SRCS := src/http/router.c
-UNIT_routes_SRCS := src/api/routes.c src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
+UNIT_routes_SRCS := src/api/routes.c src/api/ping.c src/api/tracks.c \
+	src/api/media_serve.c src/api/stub.c \
+	src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
 	src/library/catalog.c src/media/kind.c src/media/file.c src/util/path.c \
 	src/util/string_buf.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
@@ -57,7 +59,7 @@ UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.
 	src/util/path.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_string_buf_SRCS := src/util/string_buf.c
 
-.PHONY: all clean run test test-asan smoke smoke-library smoke-stream compile_commands.json
+.PHONY: all clean run test test-asan smoke smoke-library smoke-stream smoke-api compile_commands.json
 
 .SECONDEXPANSION:
 
@@ -104,6 +106,10 @@ smoke-library: $(TARGET)
 smoke-stream: $(TARGET)
 	@chmod +x scripts/smoke_stream.sh
 	./scripts/smoke_stream.sh
+
+smoke-api: $(TARGET)
+	@chmod +x scripts/smoke_api.sh
+	./scripts/smoke_api.sh
 
 compile_commands.json: $(APP_SRCS) src/main.c $(TEST_SRCS) Makefile
 	@printf '[' > compile_commands.json

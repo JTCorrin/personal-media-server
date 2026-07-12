@@ -44,6 +44,8 @@ void http_server_poll(http_server_t *server, int timeout_ms);
 void http_reply_text(void *res, int status, const char *content_type, const char *body);
 void http_reply_json(void *res, int status, const char *json_body);
 void http_reply_not_found(void *res);
+/* 501 JSON. path is an optional route pattern included in the body. */
+void http_reply_not_implemented(void *res, const char *path);
 
 /*
  * Serve a local file. req must be the mg_http_message* from the handler;

@@ -5,4 +5,5 @@ main
 *.log
 compile_commands.json
 ADVICE.md
+RECAP.md
 /tmp/media-server-smoke-404.json
