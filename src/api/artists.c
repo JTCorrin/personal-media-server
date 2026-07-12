@@ -10,33 +10,19 @@
 
 #include <stdint.h>
 
-static browse_index_t *index_from_match(const router_match_t *match)
-{
-    app_context_t *ctx = match != NULL ? match->user_data : NULL;
-    catalog_t *catalog = ctx != NULL ? ctx->catalog : NULL;
-    return browse_index_build(catalog);
-}
-
 void handle_artists(const router_match_t *match, void *req, void *res)
 {
-    browse_index_t *index;
+    const browse_index_t *index = api_context_browse(match);
     api_page_t page;
     string_buf_t sb;
     size_t total = 0;
     size_t written = 0;
     size_t count;
 
-    index = index_from_match(match);
-    if (index == NULL) {
-        http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
-        return;
-    }
-
     api_page_from_req(req, &page);
     count = browse_artist_count(index);
 
     if (string_buf_init(&sb, 64 + page.limit * 96) != 0) {
-        browse_index_destroy(index);
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
@@ -68,18 +54,16 @@ void handle_artists(const router_match_t *match, void *req, void *res)
 
     http_reply_json(res, 200, string_buf_cstr(&sb));
     string_buf_free(&sb);
-    browse_index_destroy(index);
     return;
 
 fail:
     string_buf_free(&sb);
-    browse_index_destroy(index);
     http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
 }
 
 void handle_artist_by_id(const router_match_t *match, void *req, void *res)
 {
-    browse_index_t *index;
+    const browse_index_t *index = api_context_browse(match);
     uint32_t id = 0;
     const browse_artist_t *artist;
     string_buf_t sb;
@@ -91,40 +75,30 @@ void handle_artist_by_id(const router_match_t *match, void *req, void *res)
         return;
     }
 
-    index = index_from_match(match);
-    if (index == NULL) {
-        http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
-        return;
-    }
-
     artist = browse_artist_find_id(index, id);
     if (artist == NULL) {
-        browse_index_destroy(index);
         http_reply_not_found(res);
         return;
     }
 
     if (string_buf_init(&sb, 128) != 0) {
-        browse_index_destroy(index);
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
 
     if (append_artist_json(&sb, artist) != 0) {
         string_buf_free(&sb);
-        browse_index_destroy(index);
         http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
         return;
     }
 
     http_reply_json(res, 200, string_buf_cstr(&sb));
     string_buf_free(&sb);
-    browse_index_destroy(index);
 }
 
 void handle_artist_albums(const router_match_t *match, void *req, void *res)
 {
-    browse_index_t *index;
+    const browse_index_t *index = api_context_browse(match);
     uint32_t id = 0;
     const browse_artist_t *artist;
     api_page_t page;
@@ -137,15 +111,8 @@ void handle_artist_albums(const router_match_t *match, void *req, void *res)
         return;
     }
 
-    index = index_from_match(match);
-    if (index == NULL) {
-        http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
-        return;
-    }
-
     artist = browse_artist_find_id(index, id);
     if (artist == NULL) {
-        browse_index_destroy(index);
         http_reply_not_found(res);
         return;
     }
@@ -153,7 +120,6 @@ void handle_artist_albums(const router_match_t *match, void *req, void *res)
     api_page_from_req(req, &page);
 
     if (string_buf_init(&sb, 64 + page.limit * 128) != 0) {
-        browse_index_destroy(index);
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
@@ -185,11 +151,9 @@ void handle_artist_albums(const router_match_t *match, void *req, void *res)
 
     http_reply_json(res, 200, string_buf_cstr(&sb));
     string_buf_free(&sb);
-    browse_index_destroy(index);
     return;
 
 fail:
     string_buf_free(&sb);
-    browse_index_destroy(index);
     http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
 }

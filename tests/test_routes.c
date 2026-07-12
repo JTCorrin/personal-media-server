@@ -2,7 +2,10 @@
 
 #include "media_server/api/routes.h"
 #include "media_server/http/router.h"
+#include "media_server/http/server.h"
 #include "media_server/library/catalog.h"
+
+#include "mongoose.h"
 
 #include <stddef.h>
 
@@ -147,6 +150,25 @@ void test_api_routes_unknown_path_is_unmatched(void)
     TEST_ASSERT_EQUAL_INT(-1, router_match(router, "GET", "/api/missing", &match));
 }
 
+void test_http_query_get_distinguishes_missing_and_invalid(void)
+{
+    struct mg_http_message hm;
+    char out[8];
+
+    memset(&hm, 0, sizeof(hm));
+    hm.query = mg_str("q=hello&big=0123456789");
+
+    TEST_ASSERT_EQUAL_INT(HTTP_QUERY_OK, http_query_get(&hm, "q", out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("hello", out);
+
+    TEST_ASSERT_EQUAL_INT(HTTP_QUERY_MISSING,
+                          http_query_get(&hm, "nope", out, sizeof(out)));
+
+    /* Value longer than the destination buffer: present but invalid. */
+    TEST_ASSERT_EQUAL_INT(HTTP_QUERY_INVALID,
+                          http_query_get(&hm, "big", out, sizeof(out)));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -157,5 +179,6 @@ int main(void)
     RUN_TEST(test_api_routes_register_all_stubs);
     RUN_TEST(test_api_routes_tracks_list_not_swallowed_by_id);
     RUN_TEST(test_api_routes_unknown_path_is_unmatched);
+    RUN_TEST(test_http_query_get_distinguishes_missing_and_invalid);
     return UNITY_END();
 }

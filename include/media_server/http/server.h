@@ -48,9 +48,15 @@ void http_reply_not_found(void *res);
 /* 501 JSON. path is an optional route pattern included in the body. */
 void http_reply_not_implemented(void *res, const char *path);
 
+/* http_query_get results. */
+#define HTTP_QUERY_OK 0       /* present; out is NUL-terminated (may be "") */
+#define HTTP_QUERY_MISSING -1 /* parameter absent (or no query string) */
+#define HTTP_QUERY_INVALID -2 /* present but undecodable or too long for out */
+
 /*
- * Copy a query-string parameter into out (always NUL-terminated on success).
- * Returns 0 if present (may be empty string), -1 if missing / bad args.
+ * Copy a query-string parameter into out (URL-decoded, NUL-terminated).
+ * Distinguishing MISSING from INVALID lets callers return accurate errors
+ * (e.g. 400 "query too long" vs 400 "query required").
  */
 int http_query_get(void *req, const char *name, char *out, size_t out_size);
 

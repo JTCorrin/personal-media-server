@@ -3,6 +3,11 @@
 #include <ctype.h>
 #include <string.h>
 
+/*
+ * Naive O(haystack * needle) scan. Fine for the short metadata strings this
+ * is used on; revisit (or push matching into sqlite) if search ever runs
+ * over large text.
+ */
 bool str_contains_ci(const char *haystack, const char *needle)
 {
     size_t nlen;

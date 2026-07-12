@@ -46,8 +46,8 @@ static int append_paged_tracks(string_buf_t *sb, catalog_t *catalog, const char 
     return page_json_end(sb, total, page);
 }
 
-static int append_paged_artists(string_buf_t *sb, browse_index_t *index, const char *q,
-                                const api_page_t *page)
+static int append_paged_artists(string_buf_t *sb, const browse_index_t *index,
+                                const char *q, const api_page_t *page)
 {
     size_t total = 0;
     size_t written = 0;
@@ -80,8 +80,8 @@ static int append_paged_artists(string_buf_t *sb, browse_index_t *index, const c
     }
 }
 
-static int append_paged_albums(string_buf_t *sb, browse_index_t *index, const char *q,
-                               const api_page_t *page)
+static int append_paged_albums(string_buf_t *sb, const browse_index_t *index,
+                               const char *q, const api_page_t *page)
 {
     size_t total = 0;
     size_t written = 0;
@@ -115,28 +115,32 @@ static int append_paged_albums(string_buf_t *sb, browse_index_t *index, const ch
 
 void handle_search(const router_match_t *match, void *req, void *res)
 {
-    app_context_t *ctx = match != NULL ? match->user_data : NULL;
-    catalog_t *catalog = ctx != NULL ? ctx->catalog : NULL;
-    browse_index_t *index = NULL;
+    catalog_t *catalog = api_context_catalog(match);
+    const browse_index_t *index = api_context_browse(match);
     api_page_t page;
     char q[SEARCH_Q_MAX];
     string_buf_t sb;
 
-    if (http_query_get(req, "q", q, sizeof(q)) != 0 || q[0] == '\0') {
+    switch (http_query_get(req, "q", q, sizeof(q))) {
+    case HTTP_QUERY_OK:
+        break;
+    case HTTP_QUERY_MISSING:
+        http_reply_json(res, 400, "{\"error\":\"missing_query\"}");
+        return;
+    default:
+        /* Undecodable or longer than SEARCH_Q_MAX. */
+        http_reply_json(res, 400, "{\"error\":\"invalid_query\"}");
+        return;
+    }
+
+    if (q[0] == '\0') {
         http_reply_json(res, 400, "{\"error\":\"missing_query\"}");
         return;
     }
 
     api_page_from_req(req, &page);
 
-    index = browse_index_build(catalog);
-    if (index == NULL) {
-        http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
-        return;
-    }
-
     if (string_buf_init(&sb, 512) != 0) {
-        browse_index_destroy(index);
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
@@ -151,12 +155,10 @@ void handle_search(const router_match_t *match, void *req, void *res)
         append_paged_albums(&sb, index, q, &page) != 0 ||
         string_buf_append_char(&sb, '}') != 0) {
         string_buf_free(&sb);
-        browse_index_destroy(index);
         http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
         return;
     }
 
     http_reply_json(res, 200, string_buf_cstr(&sb));
     string_buf_free(&sb);
-    browse_index_destroy(index);
 }

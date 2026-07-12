@@ -12,7 +12,9 @@ logging).
 ## Features
 
 - Recursive library scan with symlink and path-traversal protection
-- JSON track listing with correctly escaped filenames
+- Artist/album browsing derived from the `Artist/Album/track` folder layout
+- Case-insensitive search across titles, artists, albums, and paths
+- Paginated JSON listings with correctly escaped strings
 - Audio streaming with HTTP Range support (seek works out of the box)
 - Cover art serving with correct MIME types
 - Pluggable logging: terminal (colored), file, and/or SQLite sinks
@@ -92,33 +94,61 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 
 ### Implemented
 
-| Method | Path          | Description                                    |
-|--------|---------------|------------------------------------------------|
-| GET    | `/api/ping`   | Health check; returns `{"ok":true}`            |
-| GET    | `/api/tracks` | All catalog items (audio and images) as JSON   |
-| GET    | `/stream/:id` | Stream an audio item; supports `Range` headers |
-| GET    | `/cover/:id`  | Serve an image item                            |
+| Method | Path                      | Description                                    |
+|--------|---------------------------|------------------------------------------------|
+| GET    | `/api/ping`               | Health check; returns `{"ok":true}`            |
+| GET    | `/api/tracks`             | Audio tracks (paginated)                       |
+| GET    | `/api/tracks/:id`         | One track                                      |
+| GET    | `/api/images`             | Cover images (paginated)                       |
+| GET    | `/api/images/:id`         | One image                                      |
+| GET    | `/api/artists`            | Artists (paginated)                            |
+| GET    | `/api/artists/:id`        | One artist                                     |
+| GET    | `/api/artists/:id/albums` | Albums by an artist (paginated)                |
+| GET    | `/api/albums`             | Albums (paginated)                             |
+| GET    | `/api/albums/:id`         | One album                                      |
+| GET    | `/api/albums/:id/tracks`  | Tracks on an album (paginated)                 |
+| GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
+| GET    | `/stream/:id`             | Stream an audio track; supports `Range` seeks  |
+| GET    | `/cover/:id`              | Serve an image item                            |
 
-`/api/tracks` returns an array of catalog items. IDs are assigned during the
-scan, starting at 1:
+### Pagination
+
+List endpoints accept `limit` (default 50, clamped to 1–200) and `offset`
+query parameters, and wrap results in an envelope with the *unpaginated*
+total:
 
 ```json
-[
-  {"id":1,"kind":"audio","path":"Artist/Album/track01.mp3","filename":"track01.mp3"},
-  {"id":2,"kind":"image","path":"Artist/Album/cover.jpg","filename":"cover.jpg"}
-]
+{"items":[...],"total":123,"limit":50,"offset":0}
 ```
 
-Unknown IDs, IDs of the wrong kind (e.g. streaming an image), and unmatched
-paths all return `404` with a JSON error body.
+Exception: within `/api/search` responses, the `artists` and `albums`
+sections cap at `limit` but ignore `offset` (their `offset` is always
+reported as `0`); only the `tracks` section honors `offset`.
+
+### Items and metadata
+
+Track/image objects carry metadata derived from the folder layout
+(`Artist/Album/track01.mp3` → artist, album, title):
+
+```json
+{"id":1,"kind":"audio","path":"Artist/Album/track01.mp3","filename":"track01.mp3",
+ "artist":"Artist","album":"Album","title":"track01"}
+```
+
+Catalog IDs are assigned during the scan starting at 1. Artist and album IDs
+are synthetic, assigned in discovery order, and stable only for the lifetime
+of the process.
+
+Errors: unknown IDs, wrong-kind IDs (e.g. streaming an image), and unmatched
+paths return `404`; `/api/search` without `q` returns
+`400 {"error":"missing_query"}`, and a `q` longer than 255 bytes (or
+undecodable) returns `400 {"error":"invalid_query"}`.
 
 ### Planned (return `501 Not Implemented`)
 
-Browse/metadata (`/api/tracks/:id`, `/api/artists...`, `/api/albums...`,
-`/api/images...`), search (`/api/search`), library management
-(`POST /api/library/scan`, `/api/library/status`), and playlists
-(`/api/playlists...`) are registered as stubs and respond with `501` until
-implemented.
+Library management (`POST /api/library/scan`, `GET /api/library/status`) and
+playlists (`/api/playlists...`) are registered as stubs and respond with
+`501` until implemented.
 
 ## Library scanning
 
@@ -132,8 +162,10 @@ The scan runs once at startup, walking `--library-dir` recursively:
   is a fatal error.
 - Nesting is capped at 32 levels.
 
-Rescanning currently requires a restart (`POST /api/library/scan` is a
-planned endpoint).
+After the scan, an artist/album browse index is built once and shared by all
+requests (the catalog is immutable while the server runs). Rescanning
+currently requires a restart (`POST /api/library/scan` is a planned
+endpoint).
 
 ## Development
 

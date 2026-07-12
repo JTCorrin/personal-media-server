@@ -74,6 +74,12 @@ int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
     memcpy(item->path, rel_path, path_len + 1);
     memcpy(item->filename, base, strlen(base) + 1);
 
+    /*
+     * Currently unreachable in practice (media_path_meta only fails on an
+     * empty basename, which was rejected above). Note the failure order is
+     * deliberate: count has not been incremented yet, so the half-written
+     * slot is simply reused by the next add.
+     */
     if (media_path_meta(rel_path, item->artist, sizeof(item->artist), item->album,
                         sizeof(item->album), item->title, sizeof(item->title)) != 0) {
         return -1;

@@ -2,6 +2,7 @@
 #include "media_server/config.h"
 #include "media_server/http/router.h"
 #include "media_server/http/server.h"
+#include "media_server/library/browse.h"
 #include "media_server/library/catalog.h"
 #include "media_server/library/scanner.h"
 #include "media_server/media/kind.h"
@@ -44,6 +45,7 @@ int main(int argc, char *argv[])
     router_t *router = NULL;
     http_server_t *server = NULL;
     catalog_t *catalog = NULL;
+    browse_index_t *browse = NULL;
     int exit_code = 1;
 
     if (config_parse_args(argc, argv, &config) != 0) {
@@ -82,7 +84,18 @@ int main(int argc, char *argv[])
                  catalog_count_kind(catalog, MEDIA_KIND_IMAGE));
     }
 
+    /* Catalog is immutable from here on, so the browse index is built once
+     * and shared by every request instead of rebuilt per request. */
+    browse = browse_index_build(catalog);
+    if (browse == NULL) {
+        LOG_ERROR("main", "failed to build browse index");
+        goto cleanup;
+    }
+    LOG_INFO("main", "browse index: %zu artists, %zu albums",
+             browse_artist_count(browse), browse_album_count(browse));
+
     app_ctx.catalog = catalog;
+    app_ctx.browse = browse;
     app_ctx.library_dir = config.library_dir;
 
     router = router_create();
@@ -117,6 +130,7 @@ int main(int argc, char *argv[])
 cleanup:
     http_server_destroy(server);
     router_destroy(router);
+    browse_index_destroy(browse);
     catalog_destroy(catalog);
     log_shutdown();
     return exit_code;

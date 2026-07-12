@@ -12,7 +12,7 @@
 static void serve_catalog_file(const router_match_t *match, void *req, void *res,
                                media_kind_t required_kind)
 {
-    app_context_t *ctx = match->user_data;
+    app_context_t *ctx = api_context_from_match(match);
     uint32_t id = 0;
     const catalog_item_t *item;
     char abs_path[CATALOG_PATH_MAX * 2];

@@ -187,16 +187,24 @@ int http_query_get(void *req, const char *name, char *out, size_t out_size)
     int n;
 
     if (hm == NULL || name == NULL || name[0] == '\0' || out == NULL || out_size == 0) {
-        return -1;
+        return HTTP_QUERY_INVALID;
     }
 
     n = mg_http_get_var(&hm->query, name, out, out_size);
-    if (n < 0) {
-        out[0] = '\0';
-        return -1;
+    if (n >= 0) {
+        return HTTP_QUERY_OK;
     }
 
-    return 0;
+    out[0] = '\0';
+
+    /*
+     * Map Mongoose's error codes: -4 = name not present, -1 = no query
+     * string at all; -3 = decode failed or value too long for out.
+     */
+    if (n == -4 || n == -1) {
+        return HTTP_QUERY_MISSING;
+    }
+    return HTTP_QUERY_INVALID;
 }
 
 void http_reply_file(void *req, void *res, const char *abs_path, const char *content_type)

@@ -70,6 +70,12 @@ int media_path_meta(const char *rel_path, char *artist, size_t artist_sz,
         return -1;
     }
 
+    /*
+     * Both ext and base point into rel_path, which is what makes the pointer
+     * comparison below legal (comparing pointers into different objects is
+     * undefined behavior in C). ext > base means the dot sits inside the
+     * basename, so the title is everything before it.
+     */
     ext = path_extension(rel_path);
     if (ext != NULL && ext > base) {
         title_len = (size_t)(ext - base);
