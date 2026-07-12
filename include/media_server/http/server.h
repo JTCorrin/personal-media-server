@@ -4,6 +4,7 @@
 #include "media_server/http/router.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /*
  * Thin HTTP adapter over Mongoose.
@@ -46,6 +47,12 @@ void http_reply_json(void *res, int status, const char *json_body);
 void http_reply_not_found(void *res);
 /* 501 JSON. path is an optional route pattern included in the body. */
 void http_reply_not_implemented(void *res, const char *path);
+
+/*
+ * Copy a query-string parameter into out (always NUL-terminated on success).
+ * Returns 0 if present (may be empty string), -1 if missing / bad args.
+ */
+int http_query_get(void *req, const char *name, char *out, size_t out_size);
 
 /*
  * Serve a local file. req must be the mg_http_message* from the handler;

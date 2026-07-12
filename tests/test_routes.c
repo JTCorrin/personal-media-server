@@ -32,12 +32,12 @@ static const expected_route_t LIVE_ROUTES[] = {
     {"GET", "/api/albums", "/api/albums"},
     {"GET", "/api/albums/1", "/api/albums/:id"},
     {"GET", "/api/albums/1/tracks", "/api/albums/:id/tracks"},
+    {"GET", "/api/search", "/api/search"},
     {"GET", "/stream/1", "/stream/:id"},
     {"GET", "/cover/3", "/cover/:id"},
 };
 
 static const expected_route_t STUB_ROUTES[] = {
-    {"GET", "/api/search", "/api/search"},
     {"POST", "/api/library/scan", "/api/library/scan"},
     {"GET", "/api/library/status", "/api/library/status"},
     {"GET", "/api/playlists", "/api/playlists"},

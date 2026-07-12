@@ -41,16 +41,18 @@ echo "==> GET /api/tracks"
 tracks="$(curl -sf "${LISTEN}/api/tracks")"
 status="$(curl -sf -o /dev/null -w '%{http_code}' "${LISTEN}/api/tracks")"
 test "${status}" = "200"
+echo "${tracks}" | grep -q '"items"'
 echo "${tracks}" | grep -q 'track01.mp3'
 echo "${tracks}" | grep -q '"kind":"audio"'
 echo "${tracks}" | grep -q '"artist"'
-echo "${tracks}" | grep -qv '"kind":"image"'
+echo "${tracks}" | grep -q '"total"'
 echo "OK tracks ${status}"
 
 echo "==> GET /api/images"
 images="$(curl -sf "${LISTEN}/api/images")"
 img_status="$(curl -sf -o /dev/null -w '%{http_code}' "${LISTEN}/api/images")"
 test "${img_status}" = "200"
+echo "${images}" | grep -q '"items"'
 echo "${images}" | grep -q 'cover.jpg'
 echo "${images}" | grep -q '"kind":"image"'
 echo "OK images ${img_status}"

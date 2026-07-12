@@ -9,8 +9,9 @@
 /* Append one catalog item as a JSON object. Returns 0 on success. */
 int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item);
 
-/* JSON array of items matching kind. */
-void api_reply_catalog_kind_list(void *res, catalog_t *catalog, media_kind_t kind);
+/* Paginated JSON list of items matching kind (reads limit/offset from req). */
+void api_reply_catalog_kind_list(void *req, void *res, catalog_t *catalog,
+                                 media_kind_t kind);
 
 /* Single JSON object for :id if it matches kind; else 404. */
 void api_reply_catalog_kind_by_id(const router_match_t *match, void *res,

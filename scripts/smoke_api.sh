@@ -55,11 +55,15 @@ echo "==> live routes"
 expect_status GET /api/ping 200
 
 tracks="$(curl -sf "${LISTEN}/api/tracks")"
+if ! printf '%s' "${tracks}" | grep -q '"items"'; then
+  echo "FAIL /api/tracks missing items envelope: ${tracks}" >&2
+  exit 1
+fi
 if ! printf '%s' "${tracks}" | grep -q '"artist"'; then
   echo "FAIL /api/tracks missing artist field: ${tracks}" >&2
   exit 1
 fi
-echo "OK GET /api/tracks includes artist"
+echo "OK GET /api/tracks envelope"
 
 audio_id="$(printf '%s' "${tracks}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
 if [[ -z "${audio_id}" ]]; then
@@ -68,6 +72,13 @@ if [[ -z "${audio_id}" ]]; then
 fi
 expect_status GET "/api/tracks/${audio_id}" 200
 expect_status GET /api/tracks/999 404
+
+paged="$(curl -sf "${LISTEN}/api/tracks?limit=1&offset=0")"
+if ! printf '%s' "${paged}" | grep -q '"limit":1'; then
+  echo "FAIL pagination limit missing: ${paged}" >&2
+  exit 1
+fi
+echo "OK GET /api/tracks?limit=1"
 
 images="$(curl -sf "${LISTEN}/api/images")"
 if ! printf '%s' "${images}" | grep -q '"kind":"image"'; then
@@ -100,8 +111,19 @@ if ! printf '%s' "${album_tracks}" | grep -q 'track01.mp3'; then
 fi
 echo "OK GET /api/albums/${album_id}/tracks"
 
+search="$(curl -sf "${LISTEN}/api/search?q=Artist")"
+if ! printf '%s' "${search}" | grep -q '"tracks"'; then
+  echo "FAIL /api/search missing tracks: ${search}" >&2
+  exit 1
+fi
+if ! printf '%s' "${search}" | grep -q '"artists"'; then
+  echo "FAIL /api/search missing artists: ${search}" >&2
+  exit 1
+fi
+echo "OK GET /api/search?q=Artist"
+expect_status GET /api/search 400
+
 echo "==> stub routes (501)"
-expect_status GET /api/search 501
 expect_status POST /api/library/scan 501
 expect_status GET /api/library/status 501
 expect_status GET /api/playlists 501

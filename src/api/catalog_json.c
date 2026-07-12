@@ -1,10 +1,12 @@
 #include "media_server/api/catalog_json.h"
 
+#include "media_server/api/page_json.h"
 #include "media_server/api/params.h"
 #include "media_server/http/server.h"
 #include "media_server/media/kind.h"
 
 #include <stdint.h>
+#include <stddef.h>
 
 int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item)
 {
@@ -46,18 +48,23 @@ int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item)
     return string_buf_append_char(sb, '}');
 }
 
-void api_reply_catalog_kind_list(void *res, catalog_t *catalog, media_kind_t kind)
+void api_reply_catalog_kind_list(void *req, void *res, catalog_t *catalog,
+                                 media_kind_t kind)
 {
+    api_page_t page;
     size_t count = catalog_count(catalog);
+    size_t total = 0;
     size_t written = 0;
     string_buf_t sb;
 
-    if (string_buf_init(&sb, 64 + count * 160) != 0) {
+    api_page_from_req(req, &page);
+
+    if (string_buf_init(&sb, 64 + page.limit * 160) != 0) {
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
 
-    if (string_buf_append_char(&sb, '[') != 0) {
+    if (page_json_begin(&sb) != 0) {
         goto fail;
     }
 
@@ -68,16 +75,19 @@ void api_reply_catalog_kind_list(void *res, catalog_t *catalog, media_kind_t kin
             continue;
         }
 
-        if (written > 0 && string_buf_append_char(&sb, ',') != 0) {
-            goto fail;
+        if (total >= page.offset && written < page.limit) {
+            if (written > 0 && string_buf_append_char(&sb, ',') != 0) {
+                goto fail;
+            }
+            if (append_catalog_item_json(&sb, item) != 0) {
+                goto fail;
+            }
+            written++;
         }
-        if (append_catalog_item_json(&sb, item) != 0) {
-            goto fail;
-        }
-        written++;
+        total++;
     }
 
-    if (string_buf_append_char(&sb, ']') != 0) {
+    if (page_json_end(&sb, total, &page) != 0) {
         goto fail;
     }
 

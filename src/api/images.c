@@ -9,8 +9,7 @@ void handle_images(const router_match_t *match, void *req, void *res)
     app_context_t *ctx = match->user_data;
     catalog_t *catalog = ctx != NULL ? ctx->catalog : NULL;
 
-    (void)req;
-    api_reply_catalog_kind_list(res, catalog, MEDIA_KIND_IMAGE);
+    api_reply_catalog_kind_list(req, res, catalog, MEDIA_KIND_IMAGE);
 }
 
 void handle_image_by_id(const router_match_t *match, void *req, void *res)

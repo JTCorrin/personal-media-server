@@ -5,6 +5,7 @@
 #include "media_server/api/images.h"
 #include "media_server/api/media_serve.h"
 #include "media_server/api/ping.h"
+#include "media_server/api/search.h"
 #include "media_server/api/stub.h"
 #include "media_server/api/tracks.h"
 #include "media_server/util/log.h"
@@ -44,14 +45,14 @@ int api_routes_register(router_t *router, app_context_t *ctx)
         add_route(router, "GET", "/api/albums/:id", handle_album_by_id, ctx) != 0 ||
         add_route(router, "GET", "/api/albums/:id/tracks", handle_album_tracks, ctx) !=
             0 ||
+        add_route(router, "GET", "/api/search", handle_search, ctx) != 0 ||
         add_route(router, "GET", "/stream/:id", handle_stream, ctx) != 0 ||
         add_route(router, "GET", "/cover/:id", handle_cover, ctx) != 0) {
         return -1;
     }
 
-    /* Search / library stubs */
-    if (add_stub(router, "GET", "/api/search") != 0 ||
-        add_stub(router, "POST", "/api/library/scan") != 0 ||
+    /* Library stubs */
+    if (add_stub(router, "POST", "/api/library/scan") != 0 ||
         add_stub(router, "GET", "/api/library/status") != 0) {
         return -1;
     }

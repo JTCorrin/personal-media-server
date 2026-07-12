@@ -181,6 +181,24 @@ void http_reply_not_implemented(void *res, const char *path)
     http_reply_json(res, 501, body);
 }
 
+int http_query_get(void *req, const char *name, char *out, size_t out_size)
+{
+    struct mg_http_message *hm = (struct mg_http_message *)req;
+    int n;
+
+    if (hm == NULL || name == NULL || name[0] == '\0' || out == NULL || out_size == 0) {
+        return -1;
+    }
+
+    n = mg_http_get_var(&hm->query, name, out, out_size);
+    if (n < 0) {
+        out[0] = '\0';
+        return -1;
+    }
+
+    return 0;
+}
+
 void http_reply_file(void *req, void *res, const char *abs_path, const char *content_type)
 {
     struct mg_connection *c = (struct mg_connection *)res;
