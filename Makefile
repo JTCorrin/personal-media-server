@@ -26,16 +26,23 @@ MAIN_OBJ := build/main.o
 TEST_SRCS := $(wildcard tests/test_*.c)
 
 # Suites included in `make test`. Add a name here when its UNIT_*_SRCS and tests are ready.
-TEST_UNITS := log router routes
+TEST_UNITS := log router routes config path media_kind catalog scanner
 TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
 
 # Production sources linked into each test executable (UNIT_<name>_SRCS).
 UNIT_log_SRCS := src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_router_SRCS := src/http/router.c
 UNIT_routes_SRCS := src/api/routes.c src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
+	src/library/catalog.c src/media/kind.c src/util/path.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
+UNIT_config_SRCS := src/config.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
+UNIT_path_SRCS := src/util/path.c
+UNIT_media_kind_SRCS := src/media/kind.c src/util/path.c
+UNIT_catalog_SRCS := src/library/catalog.c src/media/kind.c src/util/path.c
+UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.c \
+	src/util/path.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 
-.PHONY: all clean run test smoke compile_commands.json
+.PHONY: all clean run test smoke smoke-library compile_commands.json
 
 .SECONDEXPANSION:
 
@@ -67,6 +74,10 @@ test: $(TEST_BINS)
 smoke: $(TARGET)
 	@chmod +x scripts/smoke_http.sh
 	./scripts/smoke_http.sh
+
+smoke-library: $(TARGET)
+	@chmod +x scripts/smoke_library.sh
+	./scripts/smoke_library.sh
 
 compile_commands.json: $(APP_SRCS) src/main.c $(TEST_SRCS) Makefile
 	@printf '[' > compile_commands.json

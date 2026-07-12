@@ -2,6 +2,13 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "debug: build test_scanner",
+            "type": "shell",
+            "command": "make -B DEBUG=1 build/tests/test_scanner",
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
             "label": "debug: build test_router",
             "type": "shell",
             "command": "make -B DEBUG=1 build/tests/test_router",

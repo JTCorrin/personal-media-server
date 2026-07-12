@@ -1,6 +1,13 @@
-# Log output
+# Server
+listen = http://127.0.0.1:8080
+library_dir = ./data/music
+
+# Log output (CLI flags still override when both are used later)
 log.level = debug
 log.terminal = true
-log.file = /var/log/media-server/app.log
-log.db = /var/lib/media-server/logs.db
-log.db_table = app_logs
+# log.file = /var/log/media-server/app.log
+# log.db = /var/lib/media-server/logs.db
+# log.db_table = app_logs
+
+# File loading is not implemented yet — this is the planned simple format.
+# Prefer this over YAML until we actually need nested/complex config.

@@ -2,6 +2,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Debug test_scanner",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/test_scanner",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "debug: build test_scanner"
+        },
+        {
             "name": "Debug test_router",
             "type": "lldb",
             "request": "launch",
@@ -22,7 +30,14 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/media-server",
-            "args": ["--listen", "http://127.0.0.1:8080", "--log-level", "debug"],
+            "args": [
+                "--listen",
+                "http://127.0.0.1:8080",
+                "--library-dir",
+                "tests/fixtures/library",
+                "--log-level",
+                "debug"
+            ],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "debug: build media-server"
         }
