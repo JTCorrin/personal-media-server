@@ -39,16 +39,18 @@ TEST_SRCS := $(wildcard tests/test_*.c)
 
 # Suites included in `make test`. Add a name here when its UNIT_*_SRCS and tests are ready.
 TEST_UNITS := log router routes config path media_kind catalog scanner media_file \
-	string_buf path_meta
+	string_buf path_meta browse
 TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
 
 # Production sources linked into each test executable (UNIT_<name>_SRCS).
 UNIT_log_SRCS := src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_router_SRCS := src/http/router.c
 UNIT_routes_SRCS := src/api/routes.c src/api/ping.c src/api/tracks.c src/api/images.c \
+	src/api/artists.c src/api/albums.c \
 	src/api/media_serve.c src/api/stub.c src/api/params.c src/api/catalog_json.c \
 	src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
-	src/library/catalog.c src/media/kind.c src/media/file.c src/media/path_meta.c \
+	src/library/catalog.c src/library/browse.c \
+	src/media/kind.c src/media/file.c src/media/path_meta.c \
 	src/util/path.c src/util/string_buf.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_config_SRCS := src/config.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
@@ -58,6 +60,8 @@ UNIT_media_kind_SRCS := src/media/kind.c src/util/path.c
 UNIT_media_file_SRCS := src/media/file.c src/media/kind.c src/util/path.c
 UNIT_catalog_SRCS := src/library/catalog.c src/media/kind.c src/media/path_meta.c \
 	src/util/path.c
+UNIT_browse_SRCS := src/library/browse.c src/library/catalog.c src/media/kind.c \
+	src/media/path_meta.c src/util/path.c
 UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.c \
 	src/media/path_meta.c src/util/path.c src/util/log.c src/util/log_sink_file.c \
 	src/util/log_sink_sqlite.c

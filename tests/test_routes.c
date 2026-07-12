@@ -26,17 +26,17 @@ static const expected_route_t LIVE_ROUTES[] = {
     {"GET", "/api/tracks/1", "/api/tracks/:id"},
     {"GET", "/api/images", "/api/images"},
     {"GET", "/api/images/1", "/api/images/:id"},
-    {"GET", "/stream/1", "/stream/:id"},
-    {"GET", "/cover/3", "/cover/:id"},
-};
-
-static const expected_route_t STUB_ROUTES[] = {
     {"GET", "/api/artists", "/api/artists"},
     {"GET", "/api/artists/1", "/api/artists/:id"},
     {"GET", "/api/artists/1/albums", "/api/artists/:id/albums"},
     {"GET", "/api/albums", "/api/albums"},
     {"GET", "/api/albums/1", "/api/albums/:id"},
     {"GET", "/api/albums/1/tracks", "/api/albums/:id/tracks"},
+    {"GET", "/stream/1", "/stream/:id"},
+    {"GET", "/cover/3", "/cover/:id"},
+};
+
+static const expected_route_t STUB_ROUTES[] = {
     {"GET", "/api/search", "/api/search"},
     {"POST", "/api/library/scan", "/api/library/scan"},
     {"GET", "/api/library/status", "/api/library/status"},

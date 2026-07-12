@@ -76,9 +76,31 @@ if ! printf '%s' "${images}" | grep -q '"kind":"image"'; then
 fi
 echo "OK GET /api/images -> 200"
 
+artists="$(curl -sf "${LISTEN}/api/artists")"
+if ! printf '%s' "${artists}" | grep -q '"name":"Artist"'; then
+  echo "FAIL /api/artists expected Artist: ${artists}" >&2
+  exit 1
+fi
+artist_id="$(printf '%s' "${artists}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+expect_status GET "/api/artists/${artist_id}" 200
+expect_status GET "/api/artists/${artist_id}/albums" 200
+expect_status GET /api/artists/999 404
+
+albums="$(curl -sf "${LISTEN}/api/albums")"
+if ! printf '%s' "${albums}" | grep -q '"name":"Album"'; then
+  echo "FAIL /api/albums expected Album: ${albums}" >&2
+  exit 1
+fi
+album_id="$(printf '%s' "${albums}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+expect_status GET "/api/albums/${album_id}" 200
+album_tracks="$(curl -sf "${LISTEN}/api/albums/${album_id}/tracks")"
+if ! printf '%s' "${album_tracks}" | grep -q 'track01.mp3'; then
+  echo "FAIL /api/albums/${album_id}/tracks missing track01: ${album_tracks}" >&2
+  exit 1
+fi
+echo "OK GET /api/albums/${album_id}/tracks"
+
 echo "==> stub routes (501)"
-expect_status GET /api/artists 501
-expect_status GET /api/albums 501
 expect_status GET /api/search 501
 expect_status POST /api/library/scan 501
 expect_status GET /api/library/status 501

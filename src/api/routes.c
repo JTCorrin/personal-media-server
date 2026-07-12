@@ -1,5 +1,7 @@
 #include "media_server/api/routes.h"
 
+#include "media_server/api/albums.h"
+#include "media_server/api/artists.h"
 #include "media_server/api/images.h"
 #include "media_server/api/media_serve.h"
 #include "media_server/api/ping.h"
@@ -34,18 +36,16 @@ int api_routes_register(router_t *router, app_context_t *ctx)
         add_route(router, "GET", "/api/tracks/:id", handle_track_by_id, ctx) != 0 ||
         add_route(router, "GET", "/api/images", handle_images, ctx) != 0 ||
         add_route(router, "GET", "/api/images/:id", handle_image_by_id, ctx) != 0 ||
+        add_route(router, "GET", "/api/artists", handle_artists, ctx) != 0 ||
+        add_route(router, "GET", "/api/artists/:id", handle_artist_by_id, ctx) != 0 ||
+        add_route(router, "GET", "/api/artists/:id/albums", handle_artist_albums, ctx) !=
+            0 ||
+        add_route(router, "GET", "/api/albums", handle_albums, ctx) != 0 ||
+        add_route(router, "GET", "/api/albums/:id", handle_album_by_id, ctx) != 0 ||
+        add_route(router, "GET", "/api/albums/:id/tracks", handle_album_tracks, ctx) !=
+            0 ||
         add_route(router, "GET", "/stream/:id", handle_stream, ctx) != 0 ||
         add_route(router, "GET", "/cover/:id", handle_cover, ctx) != 0) {
-        return -1;
-    }
-
-    /* Browse stubs (artists/albums come next) */
-    if (add_stub(router, "GET", "/api/artists") != 0 ||
-        add_stub(router, "GET", "/api/artists/:id") != 0 ||
-        add_stub(router, "GET", "/api/artists/:id/albums") != 0 ||
-        add_stub(router, "GET", "/api/albums") != 0 ||
-        add_stub(router, "GET", "/api/albums/:id") != 0 ||
-        add_stub(router, "GET", "/api/albums/:id/tracks") != 0) {
         return -1;
     }
 
