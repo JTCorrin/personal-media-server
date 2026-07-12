@@ -21,6 +21,7 @@ static void on_signal(int signo)
 int main(int argc, char *argv[])
 {
     app_config_t config;
+    app_context_t app_ctx = {0};
     router_t *router = NULL;
     http_server_t *server = NULL;
     catalog_t *catalog = NULL;
@@ -60,13 +61,16 @@ int main(int argc, char *argv[])
                  catalog_count_kind(catalog, MEDIA_KIND_IMAGE));
     }
 
+    app_ctx.catalog = catalog;
+    app_ctx.library_dir = config.library_dir;
+
     router = router_create();
     if (router == NULL) {
         LOG_ERROR("main", "failed to create router");
         goto cleanup;
     }
 
-    if (api_routes_register(router, catalog) != 0) {
+    if (api_routes_register(router, &app_ctx) != 0) {
         goto cleanup;
     }
 

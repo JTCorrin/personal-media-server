@@ -152,3 +152,24 @@ void http_reply_not_found(void *res)
 {
     http_reply_json(res, 404, "{\"error\":\"not found\"}");
 }
+
+void http_reply_file(void *req, void *res, const char *abs_path, const char *content_type)
+{
+    struct mg_connection *c = (struct mg_connection *)res;
+    struct mg_http_message *hm = (struct mg_http_message *)req;
+    struct mg_http_serve_opts opts;
+    char extra[160];
+
+    if (c == NULL || hm == NULL || abs_path == NULL || abs_path[0] == '\0') {
+        http_reply_not_found(res);
+        return;
+    }
+
+    memset(&opts, 0, sizeof(opts));
+    if (content_type != NULL && content_type[0] != '\0') {
+        snprintf(extra, sizeof(extra), "Content-Type: %s\r\n", content_type);
+        opts.extra_headers = extra;
+    }
+
+    mg_http_serve_file(c, hm, abs_path, &opts);
+}

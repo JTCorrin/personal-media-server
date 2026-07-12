@@ -45,4 +45,10 @@ void http_reply_text(void *res, int status, const char *content_type, const char
 void http_reply_json(void *res, int status, const char *json_body);
 void http_reply_not_found(void *res);
 
+/*
+ * Serve a local file. req must be the mg_http_message* from the handler;
+ * res is the connection. content_type may be NULL (Mongoose defaults).
+ */
+void http_reply_file(void *req, void *res, const char *abs_path, const char *content_type);
+
 #endif /* MEDIA_SERVER_HTTP_SERVER_H */

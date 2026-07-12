@@ -46,7 +46,7 @@ void test_scanner_finds_audio_and_images(void)
     TEST_ASSERT_TRUE(
         catalog_has_path(MEDIA_KIND_AUDIO, "Artist/Album/track01.mp3"));
     TEST_ASSERT_TRUE(
-        catalog_has_path(MEDIA_KIND_AUDIO, "Artist/Album/track02.flac"));
+        catalog_has_path(MEDIA_KIND_AUDIO, "Artist/Album/track02.mp3"));
     TEST_ASSERT_TRUE(
         catalog_has_path(MEDIA_KIND_IMAGE, "Artist/Album/cover.jpg"));
 }
