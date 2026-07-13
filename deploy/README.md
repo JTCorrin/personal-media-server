@@ -1,6 +1,6 @@
 # Deploy media-server to Proxmox LXC
 
-Forgejo Actions builds and tests on the Proxmox `ubuntu` runner, then rsyncs the
+Forgejo Actions builds and tests on the Proxmox `ubuntu-latest` runner, then rsyncs the
 `media-server` binary to CT 101 and restarts systemd.
 
 Workflow: [`.forgejo/workflows/deploy.yml`](../.forgejo/workflows/deploy.yml)
