@@ -1,6 +1,6 @@
 # media-server
 
-A lightweight media server written in C11. It scans a directory of audio
+A lightweight media server written in C. It scans a directory of audio
 files and cover art, builds an in-memory catalog, and serves it over HTTP —
 including range-request streaming, so any browser, `mpv`, or VLC can seek
 within a track.
@@ -65,6 +65,14 @@ it:
 curl http://127.0.0.1:8080/api/tracks | jq
 mpv http://127.0.0.1:8080/stream/1
 ```
+
+### Client agent brief
+
+[`CLIENT_AGENTS.md`](CLIENT_AGENTS.md) is a short, copy-pasteable overview of
+the server and HTTP endpoints for AI agents (or humans) building a frontend
+client. Point the client at a base URL such as `http://127.0.0.1:8080` or a
+LAN IP; no auth is required. Prefer that file over scraping this README when
+bootstrapping a separate client repo.
 
 ### Test playground UI
 
@@ -289,3 +297,9 @@ third_party/            vendored Mongoose and Unity
   `..` segments as defense in depth.
 - Filenames are JSON-escaped in API responses, and control characters in
   request data are stripped before logging.
+
+## Author notes
+
+This project was started as I wanted to learn more C and I wanted to do that using the mental model I have from working with python and node and other such higher level languages. I particularly wanted to maintain a resemblance to the pattern `request -> route -> controller -> services/utils -> response` as this was how I usually write an API.
+
+AI was integral to the building of this server. I used it to guide me and explain things to me. There are still things here I am yet to wrap my head around but ultimately this has been a lot of fun building
