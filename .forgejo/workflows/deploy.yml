@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu
     steps:
       - name: Checkout
         timeout-minutes: 5
@@ -17,7 +17,13 @@ jobs:
         timeout-minutes: 10
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make pkg-config libsqlite3-dev libtagc0-dev
+          sudo apt-get install -y gcc make pkg-config libsqlite3-dev libtagc0-dev curl
+
+      - name: Fetch third-party sources
+        timeout-minutes: 5
+        run: |
+          chmod +x scripts/fetch_third_party.sh
+          ./scripts/fetch_third_party.sh
 
       - name: Test and build
         timeout-minutes: 15
