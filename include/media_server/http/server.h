@@ -61,6 +61,12 @@ void http_reply_not_implemented(void *res, const char *path);
 int http_query_get(void *req, const char *name, char *out, size_t out_size);
 
 /*
+ * Copy a request header into out (NUL-terminated).
+ * Returns HTTP_QUERY_OK / MISSING / INVALID (same semantics as http_query_get).
+ */
+int http_header_get(void *req, const char *name, char *out, size_t out_size);
+
+/*
  * Serve a local file. req must be the mg_http_message* from the handler;
  * res is the connection. content_type may be NULL (Mongoose defaults).
  */

@@ -38,6 +38,7 @@ static const expected_route_t LIVE_ROUTES[] = {
     {"GET", "/api/albums", "/api/albums"},
     {"GET", "/api/albums/1", "/api/albums/:id"},
     {"PATCH", "/api/albums/1", "/api/albums/:id"},
+    {"PUT", "/api/albums/1/cover", "/api/albums/:id/cover"},
     {"GET", "/api/albums/1/tracks", "/api/albums/:id/tracks"},
     {"GET", "/api/search", "/api/search"},
     {"GET", "/api/library/status", "/api/library/status"},

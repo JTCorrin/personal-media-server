@@ -90,7 +90,7 @@ UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.
 	src/util/log_sink_sqlite.c
 UNIT_runtime_SRCS := src/library/runtime.c src/library/scanner.c src/library/catalog.c \
 	src/library/browse.c src/library/catalog_store.c src/media/kind.c \
-	src/media/metadata.c src/media/path_meta.c src/util/path.c \
+	src/media/metadata.c src/media/path_meta.c src/media/file.c src/util/path.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_string_buf_SRCS := src/util/string_buf.c
 UNIT_str_SRCS := src/util/str.c

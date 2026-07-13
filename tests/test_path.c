@@ -42,6 +42,17 @@ void test_path_basename(void)
     TEST_ASSERT_EQUAL_STRING("song.mp3", path_basename("song.mp3"));
 }
 
+void test_path_dirname(void)
+{
+    char out[64];
+
+    TEST_ASSERT_EQUAL_INT(0, path_dirname(out, sizeof(out), "Artist/Album/track.mp3"));
+    TEST_ASSERT_EQUAL_STRING("Artist/Album", out);
+    TEST_ASSERT_EQUAL_INT(0, path_dirname(out, sizeof(out), "track.mp3"));
+    TEST_ASSERT_EQUAL_STRING("", out);
+    TEST_ASSERT_EQUAL_INT(-1, path_dirname(out, 4, "Artist/Album/track.mp3"));
+}
+
 void test_path_extension(void)
 {
     TEST_ASSERT_EQUAL_STRING(".mp3", path_extension("/music/song.mp3"));
@@ -66,6 +77,7 @@ int main(void)
     RUN_TEST(test_path_join_absolute_name_wins);
     RUN_TEST(test_path_join_rejects_overflow);
     RUN_TEST(test_path_basename);
+    RUN_TEST(test_path_dirname);
     RUN_TEST(test_path_extension);
     RUN_TEST(test_path_has_extension);
     return UNITY_END();

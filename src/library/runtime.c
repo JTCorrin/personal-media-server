@@ -4,12 +4,17 @@
 #include "media_server/library/catalog.h"
 #include "media_server/library/catalog_store.h"
 #include "media_server/library/scanner.h"
+#include "media_server/media/file.h"
 #include "media_server/media/kind.h"
 #include "media_server/util/log.h"
+#include "media_server/util/path.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 int library_runtime_init(app_context_t *ctx)
 {
@@ -444,6 +449,192 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
     *updated_track_count = count;
     metadata_mutation_finish(ctx, copy, browse);
     return 0;
+}
+
+static int resolve_album_cover_dir(app_context_t *ctx, uint32_t album_id,
+                                   char *dir_out, size_t dir_out_size)
+{
+    const browse_album_t *album;
+    catalog_t *catalog;
+    char first_dir[CATALOG_PATH_MAX];
+    bool have_dir = false;
+    size_t count;
+
+    album = browse_album_find_id(ctx->browse, album_id);
+    if (album == NULL) {
+        return 3;
+    }
+
+    catalog = ctx->catalog;
+    count = catalog_count(catalog);
+    first_dir[0] = '\0';
+
+    for (size_t i = 0; i < count; i++) {
+        const catalog_item_t *item = catalog_get(catalog, i);
+        char dir[CATALOG_PATH_MAX];
+
+        if (item == NULL || item->kind != MEDIA_KIND_AUDIO ||
+            !browse_album_owns_item(album, item)) {
+            continue;
+        }
+        if (path_dirname(dir, sizeof(dir), item->path) != 0) {
+            return -1;
+        }
+        if (dir[0] == '\0') {
+            return 5;
+        }
+        if (!have_dir) {
+            if (strlen(dir) + 1 > sizeof(first_dir)) {
+                return -1;
+            }
+            memcpy(first_dir, dir, strlen(dir) + 1);
+            have_dir = true;
+        } else if (strcmp(first_dir, dir) != 0) {
+            return 6;
+        }
+    }
+
+    if (!have_dir) {
+        return 5;
+    }
+    if (strlen(first_dir) + 1 > dir_out_size) {
+        return -1;
+    }
+    memcpy(dir_out, first_dir, strlen(first_dir) + 1);
+    return 0;
+}
+
+static int atomic_write_file(const char *abs_path, const void *bytes, size_t len)
+{
+    char tmp_path[CATALOG_PATH_MAX * 2 + 64];
+    FILE *fp;
+    size_t written;
+    int fd;
+
+    if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d", abs_path, (int)getpid()) >=
+        (int)sizeof(tmp_path)) {
+        return -1;
+    }
+
+    fp = fopen(tmp_path, "wb");
+    if (fp == NULL) {
+        return -1;
+    }
+    written = fwrite(bytes, 1, len, fp);
+    if (written != len) {
+        fclose(fp);
+        remove(tmp_path);
+        return -1;
+    }
+    if (fflush(fp) != 0) {
+        fclose(fp);
+        remove(tmp_path);
+        return -1;
+    }
+    fd = fileno(fp);
+    if (fd >= 0 && fsync(fd) != 0) {
+        fclose(fp);
+        remove(tmp_path);
+        return -1;
+    }
+    if (fclose(fp) != 0) {
+        remove(tmp_path);
+        return -1;
+    }
+    if (rename(tmp_path, abs_path) != 0) {
+        remove(tmp_path);
+        return -1;
+    }
+    return 0;
+}
+
+int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
+                            const void *bytes, size_t len, const char *ext,
+                            char *out_rel_path, size_t out_rel_path_size)
+{
+    char rel_dir[CATALOG_PATH_MAX];
+    char rel_path[CATALOG_PATH_MAX];
+    char abs_path[CATALOG_PATH_MAX * 2];
+    char abs_dir[CATALOG_PATH_MAX * 2];
+    struct stat st;
+    int rc;
+    int scan_rc;
+
+    if (ctx == NULL || bytes == NULL || ext == NULL || ext[0] == '\0' ||
+        (ext[0] == '.' && ext[1] == '\0')) {
+        return -1;
+    }
+    if (len == 0 || len > LIBRARY_COVER_MAX_BYTES) {
+        return -1;
+    }
+
+    /* Normalize ext: allow callers to pass ".jpg" or "jpg". */
+    if (ext[0] == '.') {
+        ext++;
+    }
+
+    pthread_mutex_lock(&ctx->mu);
+    if (ctx->library_dir == NULL || ctx->library_dir[0] == '\0') {
+        pthread_mutex_unlock(&ctx->mu);
+        return 4;
+    }
+    if (ctx->scanning || ctx->metadata_mutating) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 1;
+    }
+
+    rc = resolve_album_cover_dir(ctx, album_id, rel_dir, sizeof(rel_dir));
+    if (rc != 0) {
+        pthread_mutex_unlock(&ctx->mu);
+        return rc;
+    }
+
+    if (snprintf(rel_path, sizeof(rel_path), "%s/cover.%s", rel_dir, ext) >=
+        (int)sizeof(rel_path)) {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (media_resolve_path(ctx->library_dir, rel_path, abs_path, sizeof(abs_path)) !=
+        0) {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (path_dirname(abs_dir, sizeof(abs_dir), abs_path) != 0 || abs_dir[0] == '\0') {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (stat(abs_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 5;
+    }
+
+    ctx->metadata_mutating = true;
+    pthread_mutex_unlock(&ctx->mu);
+
+    if (atomic_write_file(abs_path, bytes, len) != 0) {
+        metadata_mutation_abort(ctx);
+        LOG_ERROR("library", "failed to write album cover %s", abs_path);
+        return -1;
+    }
+
+    metadata_mutation_abort(ctx);
+
+    if (out_rel_path != NULL && out_rel_path_size > 0) {
+        if (strlen(rel_path) + 1 > out_rel_path_size) {
+            return -1;
+        }
+        memcpy(out_rel_path, rel_path, strlen(rel_path) + 1);
+    }
+
+    LOG_INFO("library", "wrote album cover %s; requesting rescan", rel_path);
+    scan_rc = library_scan_request(ctx, false);
+    if (scan_rc == 0 || scan_rc == 2) {
+        return scan_rc;
+    }
+    if (scan_rc == 1) {
+        return 1;
+    }
+    return -1;
 }
 
 void library_status_get(app_context_t *ctx, library_status_t *out)

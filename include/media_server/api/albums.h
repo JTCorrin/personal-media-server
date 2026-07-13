@@ -7,5 +7,6 @@ void handle_albums(const router_match_t *match, void *req, void *res);
 void handle_album_by_id(const router_match_t *match, void *req, void *res);
 void handle_album_tracks(const router_match_t *match, void *req, void *res);
 void handle_album_patch(const router_match_t *match, void *req, void *res);
+void handle_album_cover_put(const router_match_t *match, void *req, void *res);
 
 #endif /* MEDIA_SERVER_API_ALBUMS_H */

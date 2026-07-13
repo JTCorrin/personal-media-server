@@ -62,6 +62,30 @@ const char *path_basename(const char *path)
     return slash + 1;
 }
 
+int path_dirname(char *out, size_t out_size, const char *path)
+{
+    const char *slash;
+    size_t len;
+
+    if (out == NULL || out_size == 0 || path == NULL) {
+        return -1;
+    }
+
+    slash = strrchr(path, '/');
+    if (slash == NULL) {
+        out[0] = '\0';
+        return 0;
+    }
+
+    len = (size_t)(slash - path);
+    if (len + 1 > out_size) {
+        return -1;
+    }
+    memcpy(out, path, len);
+    out[len] = '\0';
+    return 0;
+}
+
 const char *path_extension(const char *path)
 {
     const char *base;

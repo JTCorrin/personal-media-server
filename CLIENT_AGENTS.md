@@ -155,6 +155,7 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 | GET | `/api/albums` | Paginated albums |
 | GET | `/api/albums/:id` | One album |
 | PATCH | `/api/albums/:id` | Override all tracks in album |
+| PUT | `/api/albums/:id/cover` | Upload cover (raw image body); starts rescan |
 | GET | `/api/albums/:id/tracks` | Tracks on album |
 
 ### Search / discover
@@ -214,6 +215,12 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 
 `PATCH /api/albums/:id` — `name`, `artist`, `release_date`, `genre`. Response:
 `{"updated_track_count":N}`. Refetch albums afterward.
+
+`PUT /api/albums/:id/cover` — raw body with `Content-Type: image/jpeg|png|webp`
+(max 10 MiB). Writes `cover.<ext>` beside the album tracks and returns
+`202 {"ok":true,"path":"...","scan":"started"}`. Poll `/api/library/status`,
+then refetch the album for `cover_id`. No auth — anyone who can reach the
+server can write into the library.
 
 ---
 

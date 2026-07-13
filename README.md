@@ -129,6 +129,7 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/albums`             | Albums (paginated)                             |
 | GET    | `/api/albums/:id`         | One album                                      |
 | PATCH  | `/api/albums/:id`         | Override metadata for every track in album     |
+| PUT    | `/api/albums/:id/cover`   | Upload cover image (raw body); starts rescan   |
 | GET    | `/api/albums/:id/tracks`  | Tracks on an album (paginated)                 |
 | GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
 | GET    | `/api/library/status`     | Scan status and catalog counts                 |
@@ -203,6 +204,15 @@ It resolves the current synthetic album to its tracks and updates all of them
 transactionally. The response is `{"updated_track_count":N}`; refetch albums
 afterward because changing artist/name can regroup albums and change synthetic
 album IDs.
+
+`PUT /api/albums/:id/cover` accepts raw image bytes with
+`Content-Type: image/jpeg`, `image/png`, or `image/webp` (max 10 MiB). The
+server writes `cover.<ext>` next to the album's tracks (never accepts a client
+path), then starts a background library rescan. Response is
+`202 {"ok":true,"path":"Artist/Album/cover.jpg","scan":"started"}`. Poll
+`GET /api/library/status` until `scanning` is false, then refetch the album for
+an updated `cover_id`. This endpoint writes into `--library-dir`; like the rest
+of the API there is no authentication.
 
 Overrides have precedence over embedded tags and filename/path metadata. With
 `--catalog-db`, they
@@ -292,6 +302,7 @@ third_party/            vendored Mongoose and Unity
 
 - Binds to `127.0.0.1` by default. There is no authentication or TLS — if
   you listen on `0.0.0.0`, only do so on a network you trust.
+  `PUT /api/albums/:id/cover` can write image files under `--library-dir`.
 - Clients can only reference media by numeric ID; file paths are never
   accepted from the network, and resolved paths reject absolute paths and
   `..` segments as defense in depth.

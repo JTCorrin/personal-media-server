@@ -18,6 +18,26 @@ void test_media_content_type_image(void)
     TEST_ASSERT_EQUAL_STRING("image/png", media_content_type("cover.png"));
 }
 
+void test_media_cover_ext_from_content_type(void)
+{
+    char ext[8];
+
+    TEST_ASSERT_EQUAL_INT(0, media_cover_ext_from_content_type("image/jpeg", ext,
+                                                               sizeof(ext)));
+    TEST_ASSERT_EQUAL_STRING("jpg", ext);
+    TEST_ASSERT_EQUAL_INT(
+        0, media_cover_ext_from_content_type(" image/PNG ; charset=binary", ext,
+                                             sizeof(ext)));
+    TEST_ASSERT_EQUAL_STRING("png", ext);
+    TEST_ASSERT_EQUAL_INT(0, media_cover_ext_from_content_type("image/webp", ext,
+                                                               sizeof(ext)));
+    TEST_ASSERT_EQUAL_STRING("webp", ext);
+    TEST_ASSERT_EQUAL_INT(-1, media_cover_ext_from_content_type("image/gif", ext,
+                                                                sizeof(ext)));
+    TEST_ASSERT_EQUAL_INT(-1, media_cover_ext_from_content_type(NULL, ext,
+                                                                sizeof(ext)));
+}
+
 void test_media_content_type_unknown_falls_back(void)
 {
     TEST_ASSERT_EQUAL_STRING("application/octet-stream", media_content_type("a.xyz"));
@@ -60,6 +80,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_media_content_type_audio);
     RUN_TEST(test_media_content_type_image);
+    RUN_TEST(test_media_cover_ext_from_content_type);
     RUN_TEST(test_media_content_type_unknown_falls_back);
     RUN_TEST(test_media_resolve_path_joins);
     RUN_TEST(test_media_resolve_path_rejects_traversal);

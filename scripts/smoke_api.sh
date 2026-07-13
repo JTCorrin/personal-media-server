@@ -20,7 +20,14 @@ cleanup() {
   fi
   rm -f "${LOG}" "${CATALOG_DB}" "${USER_DB}"
 }
-trap cleanup EXIT
+COVER_BAK=""
+restore_cover() {
+  if [[ -n "${COVER_BAK}" && -f "${COVER_BAK}" ]]; then
+    cp "${COVER_BAK}" "${LIBRARY}/Artist/Album/cover.jpg" 2>/dev/null || true
+    rm -f "${COVER_BAK}"
+  fi
+}
+trap 'restore_cover; cleanup' EXIT
 
 cd "${ROOT}"
 make media-server >/dev/null
@@ -129,8 +136,8 @@ fi
 echo "OK GET /api/images -> 200"
 
 artists="$(curl -sf "${LISTEN}/api/artists")"
-if ! printf '%s' "${artists}" | grep -q '"name":"Artist"'; then
-  echo "FAIL /api/artists expected Artist: ${artists}" >&2
+if ! printf '%s' "${artists}" | grep -q '"name":"SoundHelix"'; then
+  echo "FAIL /api/artists expected SoundHelix: ${artists}" >&2
   exit 1
 fi
 artist_id="$(printf '%s' "${artists}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
@@ -166,6 +173,40 @@ if ! printf '%s' "${album_patch}" | grep -q '"updated_track_count":2'; then
   exit 1
 fi
 echo "OK PATCH /api/albums/${album_id}"
+
+COVER_BAK="$(mktemp)"
+cp "${LIBRARY}/Artist/Album/cover.jpg" "${COVER_BAK}"
+
+cover_put="$(printf '\xff\xd8\xff\xd9COVERPUT' | curl -s -w '\n%{http_code}' -X PUT \
+  -H 'Content-Type: image/jpeg' --data-binary @- \
+  "${LISTEN}/api/albums/${album_id}/cover")"
+cover_put_body="$(printf '%s' "${cover_put}" | sed '$d')"
+cover_put_code="$(printf '%s' "${cover_put}" | tail -n1)"
+if [[ "${cover_put_code}" != "202" ]]; then
+  echo "FAIL PUT /api/albums/${album_id}/cover status: ${cover_put_code} ${cover_put_body}" >&2
+  exit 1
+fi
+if ! printf '%s' "${cover_put_body}" | grep -q '"scan":"started"'; then
+  echo "FAIL cover PUT missing scan started: ${cover_put_body}" >&2
+  exit 1
+fi
+if ! printf '%s' "${cover_put_body}" | grep -q 'Artist/Album/cover.jpg'; then
+  echo "FAIL cover PUT missing path: ${cover_put_body}" >&2
+  exit 1
+fi
+for _ in $(seq 1 100); do
+  status="$(curl -sf "${LISTEN}/api/library/status")"
+  if printf '%s' "${status}" | grep -q '"scanning":false'; then
+    break
+  fi
+  sleep 0.1
+done
+served="$(curl -sf "${LISTEN}/cover/${cover_id}")"
+if ! printf '%s' "${served}" | grep -q 'COVERPUT'; then
+  echo "FAIL /cover/${cover_id} after PUT did not contain new bytes" >&2
+  exit 1
+fi
+echo "OK PUT /api/albums/${album_id}/cover"
 
 search="$(curl -sf "${LISTEN}/api/search?q=Artist")"
 if ! printf '%s' "${search}" | grep -q '"tracks"'; then
