@@ -1,6 +1,7 @@
 #include "media_server/library/browse.h"
 
 #include "media_server/media/kind.h"
+#include "media_server/media/path_meta.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -87,6 +88,17 @@ static void link_album_covers(browse_index_t *index, const catalog_t *catalog)
 
         album = find_album_by_names(index, item->artist, item->album);
         if (album == NULL) {
+            for (size_t j = 0; j < index->album_count; j++) {
+                browse_album_t *candidate = &index->albums[j];
+                if (!candidate->path_group_mixed &&
+                    strcmp(candidate->path_artist, item->artist) == 0 &&
+                    strcmp(candidate->path_name, item->album) == 0) {
+                    album = candidate;
+                    break;
+                }
+            }
+        }
+        if (album == NULL) {
             continue;
         }
 
@@ -163,7 +175,8 @@ static browse_artist_t *add_artist(browse_index_t *index, const char *name)
 }
 
 static browse_album_t *add_album(browse_index_t *index, const char *artist_name,
-                                 const char *album_name, uint32_t artist_id)
+                                 const char *album_name, uint32_t artist_id,
+                                 const catalog_item_t *first_track)
 {
     browse_album_t *album;
 
@@ -177,6 +190,16 @@ static browse_album_t *add_album(browse_index_t *index, const char *artist_name,
     album->artist_id = artist_id;
     memcpy(album->name, album_name, strlen(album_name) + 1);
     memcpy(album->artist, artist_name, strlen(artist_name) + 1);
+    if (first_track != NULL) {
+        char ignored_title[CATALOG_META_MAX];
+        memcpy(album->release_date, first_track->release_date,
+               strlen(first_track->release_date) + 1);
+        memcpy(album->genre, first_track->genre, strlen(first_track->genre) + 1);
+        (void)media_path_meta(first_track->path, album->path_artist,
+                              sizeof(album->path_artist), album->path_name,
+                              sizeof(album->path_name), ignored_title,
+                              sizeof(ignored_title));
+    }
     index->album_count++;
     return album;
 }
@@ -214,10 +237,14 @@ browse_index_t *browse_index_build(const catalog_t *catalog)
         }
 
         if (item->album[0] != '\0') {
+            char path_artist[CATALOG_META_MAX];
+            char path_album[CATALOG_META_MAX];
+            char ignored_title[CATALOG_META_MAX];
+
             album = find_album_by_names(index, item->artist, item->album);
             if (album == NULL) {
                 uint32_t artist_id = artist != NULL ? artist->id : 0;
-                album = add_album(index, item->artist, item->album, artist_id);
+                album = add_album(index, item->artist, item->album, artist_id, item);
                 if (album == NULL) {
                     browse_index_destroy(index);
                     return NULL;
@@ -225,6 +252,25 @@ browse_index_t *browse_index_build(const catalog_t *catalog)
                 if (artist != NULL) {
                     artist->album_count++;
                 }
+            }
+            if (!album->release_date_mixed &&
+                strcmp(album->release_date, item->release_date) != 0) {
+                album->release_date[0] = '\0';
+                album->release_date_mixed = true;
+            }
+            if (!album->genre_mixed && strcmp(album->genre, item->genre) != 0) {
+                album->genre[0] = '\0';
+                album->genre_mixed = true;
+            }
+            (void)media_path_meta(item->path, path_artist, sizeof(path_artist),
+                                  path_album, sizeof(path_album), ignored_title,
+                                  sizeof(ignored_title));
+            if (!album->path_group_mixed &&
+                (strcmp(album->path_name, path_album) != 0 ||
+                 strcmp(album->path_artist, path_artist) != 0)) {
+                album->path_group_mixed = true;
+                album->path_name[0] = '\0';
+                album->path_artist[0] = '\0';
             }
             album->track_count++;
         }

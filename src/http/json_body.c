@@ -139,6 +139,73 @@ int http_json_get_u32_field(const char *body, size_t body_len, const char *key,
     return parse_u32_token(token, out);
 }
 
+static int optional_token(const char *body, size_t body_len, const char *key,
+                          struct mg_str *json, char *path, size_t path_size,
+                          struct mg_str *token)
+{
+    if (json_object_view(body, body_len, json) != 0 ||
+        json_path(key, path, path_size) != 0) {
+        return HTTP_JSON_FIELD_INVALID;
+    }
+    *token = mg_json_get_tok(*json, path);
+    if (token->buf == NULL) {
+        return HTTP_JSON_FIELD_ABSENT;
+    }
+    if (token->len == 4 && memcmp(token->buf, "null", 4) == 0) {
+        return HTTP_JSON_FIELD_NULL;
+    }
+    return HTTP_JSON_FIELD_VALUE;
+}
+
+int http_json_get_optional_string(const char *body, size_t body_len,
+                                  const char *key, char *out,
+                                  size_t out_size)
+{
+    struct mg_str json;
+    struct mg_str token;
+    char path[128];
+    char *value;
+    size_t len;
+    int state;
+
+    if (out == NULL || out_size == 0) {
+        return HTTP_JSON_FIELD_INVALID;
+    }
+    out[0] = '\0';
+    state = optional_token(body, body_len, key, &json, path, sizeof(path), &token);
+    if (state != HTTP_JSON_FIELD_VALUE) {
+        return state;
+    }
+    value = mg_json_get_str(json, path);
+    if (value == NULL) {
+        return HTTP_JSON_FIELD_INVALID;
+    }
+    len = strlen(value);
+    if (len >= out_size) {
+        mg_free(value);
+        return HTTP_JSON_FIELD_INVALID;
+    }
+    memcpy(out, value, len + 1);
+    mg_free(value);
+    return HTTP_JSON_FIELD_VALUE;
+}
+
+int http_json_get_optional_u32(const char *body, size_t body_len,
+                               const char *key, uint32_t *out)
+{
+    struct mg_str json;
+    struct mg_str token;
+    char path[128];
+    int state;
+
+    state = optional_token(body, body_len, key, &json, path, sizeof(path), &token);
+    if (state != HTTP_JSON_FIELD_VALUE) {
+        return state;
+    }
+    return parse_u32_token(token, out) == 0 ? HTTP_JSON_FIELD_VALUE
+                                            : HTTP_JSON_FIELD_INVALID;
+}
+
 int http_json_get_u32_array(const char *body, size_t body_len, const char *key,
                             uint32_t *out, size_t max_out, size_t *out_count)
 {
@@ -199,6 +266,29 @@ int http_req_json_get_u32(void *req, const char *key, uint32_t *out)
         return -1;
     }
     return http_json_get_u32_field(buf, len, key, out);
+}
+
+int http_req_json_get_optional_string(void *req, const char *key, char *out,
+                                      size_t out_size)
+{
+    const char *buf;
+    size_t len;
+
+    if (http_body_view(req, &buf, &len) != 0) {
+        return HTTP_JSON_FIELD_INVALID;
+    }
+    return http_json_get_optional_string(buf, len, key, out, out_size);
+}
+
+int http_req_json_get_optional_u32(void *req, const char *key, uint32_t *out)
+{
+    const char *buf;
+    size_t len;
+
+    if (http_body_view(req, &buf, &len) != 0) {
+        return HTTP_JSON_FIELD_INVALID;
+    }
+    return http_json_get_optional_u32(buf, len, key, out);
 }
 
 int http_req_json_get_u32_array(void *req, const char *key, uint32_t *out,

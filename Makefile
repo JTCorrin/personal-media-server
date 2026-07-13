@@ -10,6 +10,18 @@ CFLAGS ?= $(BASE_CFLAGS)
 LDFLAGS ?=
 LDLIBS ?= -lsqlite3 -lpthread
 
+PKG_CONFIG ?= pkg-config
+TAGLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags taglib_c)
+TAGLIB_LIBS := $(shell $(PKG_CONFIG) --libs taglib_c)
+CFLAGS += $(TAGLIB_CFLAGS)
+LDLIBS += $(TAGLIB_LIBS)
+
+# The generic property API was added to the C bindings in TagLib 2.0.
+# Keep builds compatible with Debian 12's TagLib 1.x runtime.
+ifeq ($(shell $(PKG_CONFIG) --atleast-version=2.0 taglib_c && echo yes),yes)
+CFLAGS += -DMEDIA_SERVER_TAGLIB_PROPERTIES=1
+endif
+
 ifeq ($(DEBUG),1)
 CFLAGS += -g -O0
 endif
@@ -38,7 +50,7 @@ MAIN_OBJ := build/main.o
 TEST_SRCS := $(wildcard tests/test_*.c)
 
 # Suites included in `make test`. Add a name here when its UNIT_*_SRCS and tests are ready.
-TEST_UNITS := log router routes config path media_kind catalog scanner media_file \
+TEST_UNITS := log router routes config path media_kind metadata catalog scanner media_file \
 	string_buf path_meta browse str params search runtime catalog_store json_body \
 	user_store
 TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
@@ -50,18 +62,19 @@ UNIT_routes_SRCS := src/api/routes.c src/api/ping.c src/api/tracks.c src/api/ima
 	src/api/artists.c src/api/albums.c src/api/search.c src/api/library.c \
 	src/api/playlists.c src/api/favourites.c src/api/history.c src/api/discover.c \
 	src/api/media_serve.c src/api/stub.c src/api/params.c src/api/catalog_json.c \
-	src/api/page_json.c src/api/browse_json.c src/http/json_body.c \
+	src/api/page_json.c src/api/browse_json.c src/api/metadata_patch.c src/http/json_body.c \
 	src/http/router.c src/http/server.c $(MONGOOSE_OBJ) \
 	src/library/catalog.c src/library/browse.c src/library/search.c \
 	src/library/scanner.c src/library/runtime.c src/library/catalog_store.c \
 	src/library/user_store.c \
-	src/media/kind.c src/media/file.c src/media/path_meta.c \
+	src/media/kind.c src/media/file.c src/media/metadata.c src/media/path_meta.c \
 	src/util/path.c src/util/string_buf.c src/util/str.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_config_SRCS := src/config.c src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_path_SRCS := src/util/path.c
 UNIT_path_meta_SRCS := src/media/path_meta.c src/util/path.c
 UNIT_media_kind_SRCS := src/media/kind.c src/util/path.c
+UNIT_metadata_SRCS := src/media/metadata.c src/media/path_meta.c src/util/path.c
 UNIT_media_file_SRCS := src/media/file.c src/media/kind.c src/util/path.c
 UNIT_catalog_SRCS := src/library/catalog.c src/media/kind.c src/media/path_meta.c \
 	src/util/path.c
@@ -73,15 +86,15 @@ UNIT_browse_SRCS := src/library/browse.c src/library/catalog.c src/media/kind.c 
 UNIT_search_SRCS := src/library/search.c src/library/catalog.c src/library/browse.c \
 	src/media/kind.c src/media/path_meta.c src/util/path.c src/util/str.c
 UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.c \
-	src/media/path_meta.c src/util/path.c src/util/log.c src/util/log_sink_file.c \
+	src/media/metadata.c src/media/path_meta.c src/util/path.c src/util/log.c src/util/log_sink_file.c \
 	src/util/log_sink_sqlite.c
 UNIT_runtime_SRCS := src/library/runtime.c src/library/scanner.c src/library/catalog.c \
 	src/library/browse.c src/library/catalog_store.c src/media/kind.c \
-	src/media/path_meta.c src/util/path.c \
+	src/media/metadata.c src/media/path_meta.c src/util/path.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_string_buf_SRCS := src/util/string_buf.c
 UNIT_str_SRCS := src/util/str.c
-UNIT_json_body_SRCS := src/http/json_body.c $(MONGOOSE_OBJ)
+UNIT_json_body_SRCS := src/http/json_body.c src/api/metadata_patch.c $(MONGOOSE_OBJ)
 UNIT_user_store_SRCS := src/library/user_store.c src/util/log.c src/util/log_sink_file.c \
 	src/util/log_sink_sqlite.c
 UNIT_params_SRCS := src/api/params.c src/http/server.c $(MONGOOSE_OBJ) \

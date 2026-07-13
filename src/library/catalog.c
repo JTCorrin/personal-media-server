@@ -34,6 +34,31 @@ void catalog_destroy(catalog_t *catalog)
     free(catalog);
 }
 
+catalog_t *catalog_clone(const catalog_t *src)
+{
+    catalog_t *copy;
+
+    if (src == NULL) {
+        return NULL;
+    }
+    copy = catalog_create();
+    if (copy == NULL) {
+        return NULL;
+    }
+    if (src->count > 0) {
+        copy->items = malloc(src->count * sizeof(*copy->items));
+        if (copy->items == NULL) {
+            catalog_destroy(copy);
+            return NULL;
+        }
+        memcpy(copy->items, src->items, src->count * sizeof(*copy->items));
+        copy->count = src->count;
+        copy->capacity = src->count;
+    }
+    copy->next_id = src->next_id;
+    return copy;
+}
+
 int catalog_replace(catalog_t *dst, catalog_t *src)
 {
     if (dst == NULL || src == NULL || dst == src) {
@@ -69,7 +94,8 @@ static int ensure_capacity(catalog_t *catalog)
     return 0;
 }
 
-int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
+int catalog_add_metadata(catalog_t *catalog, media_kind_t kind,
+                         const char *rel_path, const media_metadata_t *metadata)
 {
     catalog_item_t *item;
     const char *base;
@@ -114,9 +140,29 @@ int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
                         sizeof(item->album), item->title, sizeof(item->title)) != 0) {
         return -1;
     }
+    if (metadata != NULL && kind == MEDIA_KIND_AUDIO) {
+        item->scanned = *metadata;
+        memcpy(item->artist, metadata->artist, sizeof(item->artist));
+        memcpy(item->album, metadata->album, sizeof(item->album));
+        memcpy(item->title, metadata->title, sizeof(item->title));
+        memcpy(item->release_date, metadata->release_date,
+               sizeof(item->release_date));
+        memcpy(item->genre, metadata->genre, sizeof(item->genre));
+        item->track_number = metadata->track_number;
+        item->disc_number = metadata->disc_number;
+    } else {
+        memcpy(item->scanned.artist, item->artist, sizeof(item->artist));
+        memcpy(item->scanned.album, item->album, sizeof(item->album));
+        memcpy(item->scanned.title, item->title, sizeof(item->title));
+    }
 
     catalog->count++;
     return 0;
+}
+
+int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
+{
+    return catalog_add_metadata(catalog, kind, rel_path, NULL);
 }
 
 int catalog_add_item(catalog_t *catalog, const catalog_item_t *item)
@@ -246,6 +292,102 @@ const catalog_item_t *catalog_find_id(const catalog_t *catalog, uint32_t id)
     }
 
     return NULL;
+}
+
+static catalog_item_t *catalog_find_id_mut(catalog_t *catalog, uint32_t id)
+{
+    if (catalog == NULL || id == 0) {
+        return NULL;
+    }
+    for (size_t i = 0; i < catalog->count; i++) {
+        if (catalog->items[i].id == id) {
+            return &catalog->items[i];
+        }
+    }
+    return NULL;
+}
+
+static void copy_text(char *dst, size_t dst_size, const char *src)
+{
+    size_t n = strlen(src);
+    if (n >= dst_size) {
+        n = dst_size - 1;
+    }
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+static void apply_patch_to_item(catalog_item_t *item, const metadata_patch_t *patch)
+{
+#define APPLY_TEXT(bit, field)                                                    \
+    do {                                                                          \
+        if ((patch->clear_mask & (bit)) != 0) {                                   \
+            copy_text(item->field, sizeof(item->field), item->scanned.field);     \
+            item->override_mask &= ~(bit);                                        \
+        } else if ((patch->set_mask & (bit)) != 0) {                              \
+            copy_text(item->field, sizeof(item->field), patch->values.field);     \
+            item->override_mask |= (bit);                                         \
+        }                                                                         \
+    } while (0)
+
+#define APPLY_UINT(bit, field)                                                    \
+    do {                                                                          \
+        if ((patch->clear_mask & (bit)) != 0) {                                   \
+            item->field = item->scanned.field;                                    \
+            item->override_mask &= ~(bit);                                        \
+        } else if ((patch->set_mask & (bit)) != 0) {                              \
+            item->field = patch->values.field;                                    \
+            item->override_mask |= (bit);                                         \
+        }                                                                         \
+    } while (0)
+
+    APPLY_TEXT(METADATA_FIELD_TITLE, title);
+    APPLY_TEXT(METADATA_FIELD_ARTIST, artist);
+    APPLY_TEXT(METADATA_FIELD_ALBUM, album);
+    APPLY_TEXT(METADATA_FIELD_RELEASE_DATE, release_date);
+    APPLY_TEXT(METADATA_FIELD_GENRE, genre);
+    APPLY_UINT(METADATA_FIELD_TRACK_NUMBER, track_number);
+    APPLY_UINT(METADATA_FIELD_DISC_NUMBER, disc_number);
+
+#undef APPLY_TEXT
+#undef APPLY_UINT
+}
+
+int catalog_apply_metadata_patch(catalog_t *catalog, uint32_t id,
+                                 const metadata_patch_t *patch)
+{
+    catalog_item_t *item;
+
+    if (catalog == NULL || patch == NULL ||
+        ((patch->set_mask | patch->clear_mask) & ~METADATA_FIELD_ALL) != 0 ||
+        (patch->set_mask & patch->clear_mask) != 0) {
+        return -1;
+    }
+    item = catalog_find_id_mut(catalog, id);
+    if (item == NULL || item->kind != MEDIA_KIND_AUDIO) {
+        return -1;
+    }
+    apply_patch_to_item(item, patch);
+    return 0;
+}
+
+int catalog_apply_metadata_override(catalog_t *catalog, const char *rel_path,
+                                    const metadata_patch_t *override)
+{
+    const catalog_item_t *found;
+    catalog_item_t *item;
+
+    if (catalog == NULL || rel_path == NULL || override == NULL ||
+        override->clear_mask != 0) {
+        return -1;
+    }
+    found = catalog_find_path(catalog, rel_path);
+    if (found == NULL || found->kind != MEDIA_KIND_AUDIO) {
+        return 1;
+    }
+    item = catalog_find_id_mut(catalog, found->id);
+    apply_patch_to_item(item, override);
+    return 0;
 }
 
 size_t catalog_count_kind(const catalog_t *catalog, media_kind_t kind)

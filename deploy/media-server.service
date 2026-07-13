@@ -1,0 +1,20 @@
+[Unit]
+Description=media-server
+After=network-online.target mnt-media-boot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+ExecStart=/usr/local/bin/media-server \
+  --listen http://0.0.0.0:8080 \
+  --library-dir /mnt/media/music \
+  --catalog-db /var/lib/media-server/catalog.db \
+  --user-db /var/lib/media-server/user.db \
+  --log-file /var/log/media-server.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

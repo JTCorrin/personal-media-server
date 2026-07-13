@@ -1,0 +1,67 @@
+name: Build and deploy to LXC
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        timeout-minutes: 5
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Install build dependencies
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc make pkg-config libsqlite3-dev libtagc0-dev curl
+
+      - name: Fetch third-party sources
+        timeout-minutes: 5
+        run: |
+          chmod +x scripts/fetch_third_party.sh
+          ./scripts/fetch_third_party.sh
+
+      - name: Test and build
+        timeout-minutes: 15
+        run: make test && make
+
+      - name: Install SSH tools
+        timeout-minutes: 5
+        run: sudo apt-get install -y openssh-client rsync
+
+      - name: Deploy to LXC
+        timeout-minutes: 5
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          BINARY_USER: ${{ vars.BINARY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+
+          BINARY_USER="${BINARY_USER:-root}"
+          DEPLOY_USER="${DEPLOY_USER:-deploy}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/usr/local/bin/media-server}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          rsync -az media-server "${BINARY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}.new"
+
+          ssh "${BINARY_USER}@${DEPLOY_HOST}" \
+            "mv '${DEPLOY_PATH}.new' '${DEPLOY_PATH}' && chmod +x '${DEPLOY_PATH}'"
+
+          if [ "$BINARY_USER" = "$DEPLOY_USER" ]; then
+            ssh "${DEPLOY_USER}@${DEPLOY_HOST}" \
+              "systemctl restart media-server && systemctl is-active --quiet media-server"
+          else
+            ssh "${DEPLOY_USER}@${DEPLOY_HOST}" \
+              "sudo systemctl restart media-server && systemctl is-active --quiet media-server"
+          fi

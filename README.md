@@ -1,6 +1,6 @@
 # media-server
 
-A lightweight media server written in C11. It scans a directory of audio
+A lightweight media server written in C. It scans a directory of audio
 files and cover art, builds an in-memory catalog, and serves it over HTTP —
 including range-request streaming, so any browser, `mpv`, or VLC can seek
 within a track.
@@ -32,6 +32,8 @@ Supported formats (by extension):
 - Linux (POSIX.1-2008), GCC or Clang, GNU Make
 - `libsqlite3` development headers (e.g. `sqlite3` on Arch,
   `libsqlite3-dev` on Debian/Ubuntu)
+- TagLib C development headers and pkg-config metadata (e.g. `taglib` on Arch,
+  `libtagc0-dev` on Debian/Ubuntu)
 - Vendored third-party sources in `third_party/` (see below)
 
 ### Third-party dependencies
@@ -63,6 +65,14 @@ it:
 curl http://127.0.0.1:8080/api/tracks | jq
 mpv http://127.0.0.1:8080/stream/1
 ```
+
+### Client agent brief
+
+[`CLIENT_AGENTS.md`](CLIENT_AGENTS.md) is a short, copy-pasteable overview of
+the server and HTTP endpoints for AI agents (or humans) building a frontend
+client. Point the client at a base URL such as `http://127.0.0.1:8080` or a
+LAN IP; no auth is required. Prefer that file over scraping this README when
+bootstrapping a separate client repo.
 
 ### Test playground UI
 
@@ -110,6 +120,7 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/ping`               | Health check; returns `{"ok":true}`            |
 | GET    | `/api/tracks`             | Audio tracks (paginated)                       |
 | GET    | `/api/tracks/:id`         | One track                                      |
+| PATCH  | `/api/tracks/:id`         | Override track metadata                        |
 | GET    | `/api/images`             | Cover images (paginated)                       |
 | GET    | `/api/images/:id`         | One image                                      |
 | GET    | `/api/artists`            | Artists (paginated)                            |
@@ -117,6 +128,7 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/artists/:id/albums` | Albums by an artist (paginated)                |
 | GET    | `/api/albums`             | Albums (paginated)                             |
 | GET    | `/api/albums/:id`         | One album                                      |
+| PATCH  | `/api/albums/:id`         | Override metadata for every track in album     |
 | GET    | `/api/albums/:id/tracks`  | Tracks on an album (paginated)                 |
 | GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
 | GET    | `/api/library/status`     | Scan status and catalog counts                 |
@@ -151,13 +163,53 @@ total:
 
 ### Items and metadata
 
-Track/image objects carry metadata derived from the folder layout
-(`Artist/Album/track01.mp3` → artist, album, title):
+Audio metadata is read from embedded tags first (ID3, Vorbis comments, MP4,
+RIFF, and the other formats supported by TagLib). Missing fields fall back to
+the folder layout and filename. Common untagged names such as
+`Artist - Album - 03 - Track title.flac`, `03 - Track title.flac`, and
+`03 Track title.flac` become title `Track title` and track number `3`.
+Tracks also expose optional release date, genre, track/disc numbers, and which
+fields are overridden:
 
 ```json
 {"id":1,"kind":"audio","path":"Artist/Album/track01.mp3","filename":"track01.mp3",
- "artist":"Artist","album":"Album","title":"track01"}
+ "artist":"Artist","album":"Album","title":"track01","release_date":null,
+ "genre":null,"track_number":null,"disc_number":null,"overridden_fields":[]}
 ```
+
+### Metadata overrides
+
+`PATCH /api/tracks/:id` accepts any subset of:
+
+```json
+{
+  "title": "Correct title",
+  "artist": "Correct artist",
+  "album": "Correct album",
+  "release_date": "2024-03-02",
+  "genre": "Rock",
+  "track_number": 3,
+  "disc_number": 1
+}
+```
+
+Dates accept `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`. Track and disc numbers must
+be between 1 and 65535. Omitted fields are unchanged; setting a field to
+`null` removes its override and restores the scanned value. Empty strings are
+valid overrides for optional text fields, while `title` must be non-empty.
+
+`PATCH /api/albums/:id` accepts `name`, `artist`, `release_date`, and `genre`.
+It resolves the current synthetic album to its tracks and updates all of them
+transactionally. The response is `{"updated_track_count":N}`; refetch albums
+afterward because changing artist/name can regroup albums and change synthetic
+album IDs.
+
+Overrides have precedence over embedded tags and filename/path metadata. With
+`--catalog-db`, they
+survive rescans and restarts in a path-keyed `metadata_overrides` table.
+Without `--catalog-db`, updates are in-memory only and disappear on the next
+rescan or restart. PATCH never writes embedded tags and never renames or moves
+media files.
 
 Catalog item IDs are assigned during the scan starting at 1 and are reused by
 relative path when `--catalog-db` is set (stable across restarts and rescans).
@@ -245,3 +297,9 @@ third_party/            vendored Mongoose and Unity
   `..` segments as defense in depth.
 - Filenames are JSON-escaped in API responses, and control characters in
   request data are stripped before logging.
+
+## Author notes
+
+This project was started as I wanted to learn more C and I wanted to do that using the mental model I have from working with python and node and other such higher level languages. I particularly wanted to maintain a resemblance to the pattern `request -> route -> controller -> services/utils -> response` as this was how I usually write an API.
+
+AI was integral to the building of this server. I used it to guide me and explain things to me. There are still things here I am yet to wrap my head around but ultimately this has been a lot of fun building

@@ -36,6 +36,29 @@ int append_album_json(string_buf_t *sb, const browse_album_t *album)
                               album->artist_id, album->track_count) != 0) {
         return -1;
     }
+    if (string_buf_append(sb, "\"release_date\":") != 0) {
+        return -1;
+    }
+    if (album->release_date[0] == '\0') {
+        if (string_buf_append(sb, "null") != 0) {
+            return -1;
+        }
+    } else if (string_buf_append_json_string(sb, album->release_date) != 0) {
+        return -1;
+    }
+    if (string_buf_append(sb, ",\"genre\":") != 0) {
+        return -1;
+    }
+    if (album->genre[0] == '\0') {
+        if (string_buf_append(sb, "null") != 0) {
+            return -1;
+        }
+    } else if (string_buf_append_json_string(sb, album->genre) != 0) {
+        return -1;
+    }
+    if (string_buf_append_char(sb, ',') != 0) {
+        return -1;
+    }
     if (album->cover_id == 0) {
         return string_buf_append(sb, "\"cover_id\":null}");
     }

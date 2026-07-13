@@ -4,6 +4,8 @@
 #include "media_server/library/catalog.h"
 #include "media_server/media/kind.h"
 
+#include <string.h>
+
 static catalog_t *catalog;
 static browse_index_t *index;
 
@@ -143,6 +145,71 @@ void test_browse_find_and_owns_item(void)
     TEST_ASSERT_NULL(browse_album_find_id(index, 99));
 }
 
+void test_browse_aggregates_common_album_metadata(void)
+{
+    metadata_patch_t patch = {0};
+    const browse_album_t *album;
+
+    TEST_ASSERT_EQUAL_INT(0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/One/t1.mp3"));
+    TEST_ASSERT_EQUAL_INT(0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/One/t2.mp3"));
+    patch.set_mask = METADATA_FIELD_RELEASE_DATE | METADATA_FIELD_GENRE;
+    strcpy(patch.values.release_date, "2024");
+    strcpy(patch.values.genre, "Rock");
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(catalog, 1, &patch));
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(catalog, 2, &patch));
+
+    index = browse_index_build(catalog);
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_EQUAL_STRING("2024", album->release_date);
+    TEST_ASSERT_EQUAL_STRING("Rock", album->genre);
+
+    browse_index_destroy(index);
+    index = NULL;
+    memset(&patch, 0, sizeof(patch));
+    patch.set_mask = METADATA_FIELD_GENRE;
+    strcpy(patch.values.genre, "Jazz");
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(catalog, 2, &patch));
+    index = browse_index_build(catalog);
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_TRUE(album->genre_mixed);
+    TEST_ASSERT_EQUAL_STRING("", album->genre);
+}
+
+void test_browse_keeps_path_cover_after_album_override(void)
+{
+    metadata_patch_t patch = {0};
+    const browse_album_t *album;
+
+    TEST_ASSERT_EQUAL_INT(0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/One/t.mp3"));
+    TEST_ASSERT_EQUAL_INT(0, catalog_add(catalog, MEDIA_KIND_IMAGE, "A/One/cover.jpg"));
+    patch.set_mask = METADATA_FIELD_ALBUM;
+    strcpy(patch.values.album, "Renamed");
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(catalog, 1, &patch));
+    index = browse_index_build(catalog);
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_EQUAL_STRING("Renamed", album->name);
+    TEST_ASSERT_EQUAL_UINT(2, album->cover_id);
+}
+
+void test_browse_keeps_path_cover_when_tags_define_album(void)
+{
+    media_metadata_t metadata = {0};
+    const browse_album_t *album;
+
+    strcpy(metadata.artist, "Tagged Artist");
+    strcpy(metadata.album, "Tagged Album");
+    strcpy(metadata.title, "Tagged Track");
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(catalog, MEDIA_KIND_AUDIO, "A/One/t.mp3",
+                                &metadata));
+    TEST_ASSERT_EQUAL_INT(0, catalog_add(catalog, MEDIA_KIND_IMAGE, "A/One/cover.jpg"));
+
+    index = browse_index_build(catalog);
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_EQUAL_STRING("Tagged Album", album->name);
+    TEST_ASSERT_EQUAL_UINT(2, album->cover_id);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -152,5 +219,8 @@ int main(void)
     RUN_TEST(test_browse_cover_absent_when_no_image);
     RUN_TEST(test_browse_ignores_loose_files_without_album);
     RUN_TEST(test_browse_find_and_owns_item);
+    RUN_TEST(test_browse_aggregates_common_album_metadata);
+    RUN_TEST(test_browse_keeps_path_cover_after_album_override);
+    RUN_TEST(test_browse_keeps_path_cover_when_tags_define_album);
     return UNITY_END();
 }

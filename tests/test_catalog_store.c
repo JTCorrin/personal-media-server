@@ -165,6 +165,70 @@ void test_catalog_adopt_ids_reuses_paths(void)
     catalog_destroy(fresh);
 }
 
+void test_catalog_store_override_round_trip_and_snapshot_preserves_it(void)
+{
+    catalog_t *loaded = catalog_create();
+    metadata_patch_t patch = {0};
+    const char *paths[] = {"Artist/Album/t1.mp3"};
+    const catalog_item_t *item;
+
+    TEST_ASSERT_NOT_NULL(loaded);
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "Artist/Album/t1.mp3"));
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_save(db_path, "/music/lib", catalog));
+
+    patch.set_mask = METADATA_FIELD_TITLE | METADATA_FIELD_RELEASE_DATE;
+    strcpy(patch.values.title, "Fixed");
+    strcpy(patch.values.release_date, "2020");
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_store_patch_overrides(db_path, paths, 1, &patch));
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_load(db_path, "/music/lib", loaded));
+    item = catalog_find_id(loaded, 1);
+    TEST_ASSERT_EQUAL_STRING("Fixed", item->title);
+    TEST_ASSERT_EQUAL_STRING("t1", item->scanned.title);
+
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_save(db_path, "/music/lib", loaded));
+    catalog_destroy(loaded);
+    loaded = catalog_create();
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_load(db_path, "/music/lib", loaded));
+    item = catalog_find_id(loaded, 1);
+    TEST_ASSERT_EQUAL_STRING("Fixed", item->title);
+
+    memset(&patch, 0, sizeof(patch));
+    patch.clear_mask = METADATA_FIELD_TITLE;
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_store_patch_overrides(db_path, paths, 1, &patch));
+    catalog_destroy(loaded);
+    loaded = catalog_create();
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_load(db_path, "/music/lib", loaded));
+    TEST_ASSERT_EQUAL_STRING("t1", catalog_find_id(loaded, 1)->title);
+    TEST_ASSERT_EQUAL_STRING("2020", catalog_find_id(loaded, 1)->release_date);
+    catalog_destroy(loaded);
+}
+
+void test_catalog_store_migrates_v1(void)
+{
+    sqlite3 *db = NULL;
+    catalog_t *loaded = catalog_create();
+    const char *sql =
+        "CREATE TABLE meta (id INTEGER PRIMARY KEY, library_root TEXT NOT NULL,"
+        "next_id INTEGER NOT NULL,schema_version INTEGER NOT NULL);"
+        "CREATE TABLE items (id INTEGER PRIMARY KEY,kind INTEGER NOT NULL,"
+        "path TEXT NOT NULL UNIQUE,filename TEXT NOT NULL,artist TEXT NOT NULL,"
+        "album TEXT NOT NULL,title TEXT NOT NULL);"
+        "INSERT INTO meta VALUES (1,'/music/v1',2,1);"
+        "INSERT INTO items VALUES (1,1,'A/B/t.mp3','t.mp3','A','B','t');";
+
+    TEST_ASSERT_NOT_NULL(loaded);
+    TEST_ASSERT_EQUAL_INT(SQLITE_OK, sqlite3_open(db_path, &db));
+    TEST_ASSERT_EQUAL_INT(SQLITE_OK, sqlite3_exec(db, sql, NULL, NULL, NULL));
+    sqlite3_close(db);
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_load(db_path, "/music/v1", loaded));
+    TEST_ASSERT_EQUAL_STRING("t", catalog_find_id(loaded, 1)->title);
+    TEST_ASSERT_EQUAL_STRING("", catalog_find_id(loaded, 1)->release_date);
+    catalog_destroy(loaded);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -173,5 +237,7 @@ int main(void)
     RUN_TEST(test_catalog_store_failure_does_not_modify_destination);
     RUN_TEST(test_catalog_store_rejects_inconsistent_next_id);
     RUN_TEST(test_catalog_adopt_ids_reuses_paths);
+    RUN_TEST(test_catalog_store_override_round_trip_and_snapshot_preserves_it);
+    RUN_TEST(test_catalog_store_migrates_v1);
     return UNITY_END();
 }
