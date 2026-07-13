@@ -21,8 +21,8 @@ int library_runtime_init(app_context_t *ctx)
     }
 
     ctx->scanning = false;
-    ctx->worker_alive = false;
-    ctx->cancel_scan = 0;
+    ctx->worker_joinable = false;
+    atomic_init(&ctx->cancel_scan, false);
     ctx->last_scan_unix = 0;
     ctx->last_scan_ok = false;
     ctx->last_error[0] = '\0';
@@ -31,19 +31,28 @@ int library_runtime_init(app_context_t *ctx)
 
 void library_runtime_shutdown(app_context_t *ctx)
 {
+    bool join_worker = false;
+    pthread_t worker = {0};
+
     if (ctx == NULL) {
         return;
     }
 
     pthread_mutex_lock(&ctx->mu);
-    if (ctx->worker_alive) {
-        ctx->cancel_scan = 1;
-        pthread_mutex_unlock(&ctx->mu);
-        pthread_join(ctx->worker, NULL);
-        pthread_mutex_lock(&ctx->mu);
-        ctx->worker_alive = false;
-        ctx->scanning = false;
+    if (ctx->worker_joinable) {
+        atomic_store(&ctx->cancel_scan, true);
+        worker = ctx->worker;
+        join_worker = true;
     }
+    pthread_mutex_unlock(&ctx->mu);
+
+    if (join_worker) {
+        pthread_join(worker, NULL);
+    }
+
+    pthread_mutex_lock(&ctx->mu);
+    ctx->worker_joinable = false;
+    ctx->scanning = false;
     pthread_mutex_unlock(&ctx->mu);
     pthread_mutex_destroy(&ctx->mu);
 }
@@ -78,7 +87,6 @@ static void *scan_worker(void *arg)
     if (new_catalog == NULL) {
         pthread_mutex_lock(&ctx->mu);
         ctx->scanning = false;
-        ctx->worker_alive = false;
         ctx->last_scan_ok = false;
         set_error(ctx, "out of memory");
         pthread_mutex_unlock(&ctx->mu);
@@ -94,7 +102,7 @@ static void *scan_worker(void *arg)
             catalog_destroy(new_catalog);
             pthread_mutex_lock(&ctx->mu);
             ctx->scanning = false;
-            ctx->worker_alive = false;
+            ctx->last_scan_ok = false;
             set_error(ctx, "cancelled");
             pthread_mutex_unlock(&ctx->mu);
             return NULL;
@@ -105,7 +113,6 @@ static void *scan_worker(void *arg)
             catalog_destroy(new_catalog);
             pthread_mutex_lock(&ctx->mu);
             ctx->scanning = false;
-            ctx->worker_alive = false;
             ctx->last_scan_ok = false;
             set_error(ctx, "scan failed");
             pthread_mutex_unlock(&ctx->mu);
@@ -117,7 +124,6 @@ static void *scan_worker(void *arg)
         catalog_destroy(new_catalog);
         pthread_mutex_lock(&ctx->mu);
         ctx->scanning = false;
-        ctx->worker_alive = false;
         ctx->last_scan_ok = false;
         set_error(ctx, "id adopt failed");
         pthread_mutex_unlock(&ctx->mu);
@@ -129,7 +135,6 @@ static void *scan_worker(void *arg)
         catalog_destroy(new_catalog);
         pthread_mutex_lock(&ctx->mu);
         ctx->scanning = false;
-        ctx->worker_alive = false;
         ctx->last_scan_ok = false;
         set_error(ctx, "browse index failed");
         pthread_mutex_unlock(&ctx->mu);
@@ -138,7 +143,16 @@ static void *scan_worker(void *arg)
 
     if (catalog_db_path != NULL && catalog_db_path[0] != '\0') {
         if (catalog_store_save(catalog_db_path, library_dir, new_catalog) != 0) {
-            LOG_WARN("library", "failed to save catalog snapshot: %s", catalog_db_path);
+            LOG_ERROR("library", "failed to save catalog snapshot: %s",
+                      catalog_db_path);
+            browse_index_destroy(new_browse);
+            catalog_destroy(new_catalog);
+            pthread_mutex_lock(&ctx->mu);
+            ctx->scanning = false;
+            ctx->last_scan_ok = false;
+            set_error(ctx, "snapshot save failed");
+            pthread_mutex_unlock(&ctx->mu);
+            return NULL;
         } else {
             LOG_INFO("library", "saved catalog snapshot: %s", catalog_db_path);
         }
@@ -150,7 +164,6 @@ static void *scan_worker(void *arg)
     ctx->catalog = new_catalog;
     ctx->browse = new_browse;
     ctx->scanning = false;
-    ctx->worker_alive = false;
     ctx->last_scan_unix = time(NULL);
     ctx->last_scan_ok = true;
     set_error(ctx, "");
@@ -167,6 +180,8 @@ static void *scan_worker(void *arg)
 int library_scan_request(app_context_t *ctx, bool force)
 {
     bool restarted = false;
+    bool reap_worker = false;
+    pthread_t worker = {0};
 
     if (ctx == NULL || ctx->library_dir == NULL || ctx->library_dir[0] == '\0') {
         return -1;
@@ -181,16 +196,25 @@ int library_scan_request(app_context_t *ctx, bool force)
         }
 
         LOG_INFO("library", "force scan: cancelling in-progress scan");
-        ctx->cancel_scan = 1;
-        pthread_mutex_unlock(&ctx->mu);
-        pthread_join(ctx->worker, NULL);
-        pthread_mutex_lock(&ctx->mu);
-        ctx->worker_alive = false;
-        ctx->scanning = false;
+        atomic_store(&ctx->cancel_scan, true);
+        worker = ctx->worker;
+        reap_worker = true;
         restarted = true;
+    } else if (ctx->worker_joinable) {
+        /* A completed joinable thread still owns pthread resources. */
+        worker = ctx->worker;
+        reap_worker = true;
     }
 
-    ctx->cancel_scan = 0;
+    if (reap_worker) {
+        pthread_mutex_unlock(&ctx->mu);
+        pthread_join(worker, NULL);
+        pthread_mutex_lock(&ctx->mu);
+        ctx->worker_joinable = false;
+        ctx->scanning = false;
+    }
+
+    atomic_store(&ctx->cancel_scan, false);
     ctx->scanning = true;
     set_error(ctx, "");
 
@@ -202,7 +226,7 @@ int library_scan_request(app_context_t *ctx, bool force)
         return -1;
     }
 
-    ctx->worker_alive = true;
+    ctx->worker_joinable = true;
     pthread_mutex_unlock(&ctx->mu);
     return restarted ? 2 : 0;
 }

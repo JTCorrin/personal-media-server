@@ -25,6 +25,13 @@ typedef struct catalog_item {
 catalog_t *catalog_create(void);
 void catalog_destroy(catalog_t *catalog);
 
+/*
+ * Replace dst's contents with src's contents. src is left empty and remains
+ * valid for catalog_destroy(). This provides an atomic-at-the-API-boundary
+ * commit for loaders that build and validate a temporary catalog first.
+ */
+int catalog_replace(catalog_t *dst, catalog_t *src);
+
 /* Add an item. IDs start at 1 and increase monotonically. Returns 0 on success. */
 int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path);
 

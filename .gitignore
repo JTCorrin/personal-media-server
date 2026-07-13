@@ -2,6 +2,8 @@ build/
 media-server
 main
 *.db
+*.db-wal
+*.db-shm
 *.log
 compile_commands.json
 ADVICE.md

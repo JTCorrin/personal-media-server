@@ -64,6 +64,28 @@ void test_json_rejects_missing(void)
     TEST_ASSERT_EQUAL_INT(-1, http_json_get_u32_field(body, strlen(body), "track_id", &id));
 }
 
+void test_json_rejects_malformed_key_smuggling(void)
+{
+    char name[32];
+    const char *body = "{\"ignored\":\"\"name\":\"Injected\"\"}";
+
+    TEST_ASSERT_EQUAL_INT(
+        -1, http_json_get_string_field(body, strlen(body), "name", name,
+                                       sizeof(name)));
+}
+
+void test_json_rejects_trailing_garbage_and_overflow(void)
+{
+    uint32_t id = 0;
+    const char *trailing = "{\"track_id\":42} garbage";
+    const char *overflow = "{\"track_id\":4294967296}";
+
+    TEST_ASSERT_EQUAL_INT(
+        -1, http_json_get_u32_field(trailing, strlen(trailing), "track_id", &id));
+    TEST_ASSERT_EQUAL_INT(
+        -1, http_json_get_u32_field(overflow, strlen(overflow), "track_id", &id));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -72,5 +94,7 @@ int main(void)
     RUN_TEST(test_json_get_u32_array);
     RUN_TEST(test_json_get_empty_array);
     RUN_TEST(test_json_rejects_missing);
+    RUN_TEST(test_json_rejects_malformed_key_smuggling);
+    RUN_TEST(test_json_rejects_trailing_garbage_and_overflow);
     return UNITY_END();
 }

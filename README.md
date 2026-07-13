@@ -174,11 +174,16 @@ undecodable) returns `400 {"error":"invalid_query"}`.
 
 ## Library scanning
 
-The scan walks `--library-dir` recursively at startup (or loads a prior
-snapshot from `--catalog-db` when present and the library root matches).
+The server canonicalizes `--library-dir` before using or persisting it. At
+startup it loads a valid prior snapshot from `--catalog-db` for fast service,
+then schedules a background scan to reconcile files changed while it was
+stopped. A missing, corrupt, incompatible, or wrong-root snapshot is discarded
+atomically and replaced by a full scan.
+
 `POST /api/library/scan` runs a background full rescan, reuses item IDs by
 path, rebuilds the browse index, and saves the snapshot when `--catalog-db`
-is set.
+is set. The in-memory catalog is swapped only after the scan, browse-index
+build, and configured snapshot save all succeed.
 
 - Files are classified by extension (case-insensitive); everything else is
   ignored.
@@ -188,10 +193,16 @@ is set.
   is a fatal error.
 - Nesting is capped at 32 levels.
 
-After the scan, an artist/album browse index is built once and shared by all
-requests (the catalog is immutable while the server runs). Rescanning
-currently requires a restart (`POST /api/library/scan` is a planned
-endpoint).
+Catalog and browse-index generations are immutable after construction.
+Background rescans build a new generation and atomically swap it under a
+mutex, so requests see either the old complete generation or the new complete
+generation.
+
+Playlist, favourite, and history rows intentionally live in a separate user
+database. Entries referencing tracks removed by a rescan are retained but
+omitted from expanded API responses; this preserves history if the track later
+returns, but can make persisted counts larger than the number of currently
+available items.
 
 ## Development
 

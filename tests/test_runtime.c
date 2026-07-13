@@ -150,11 +150,31 @@ void test_scan_request_busy_and_force(void)
     TEST_ASSERT_TRUE(st.last_scan_ok);
 }
 
+void test_completed_workers_are_reaped_before_next_scan(void)
+{
+    library_status_t st;
+
+    for (int run = 0; run < 3; run++) {
+        TEST_ASSERT_EQUAL_INT(0, library_scan_request(&ctx, false));
+        for (int i = 0; i < 200; i++) {
+            library_status_get(&ctx, &st);
+            if (!st.scanning) {
+                break;
+            }
+            sleep_ms(10);
+        }
+        library_status_get(&ctx, &st);
+        TEST_ASSERT_FALSE(st.scanning);
+        TEST_ASSERT_TRUE(st.last_scan_ok);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_scan_request_rejects_missing_library);
     RUN_TEST(test_scan_request_starts_and_completes);
     RUN_TEST(test_scan_request_busy_and_force);
+    RUN_TEST(test_completed_workers_are_reaped_before_next_scan);
     return UNITY_END();
 }

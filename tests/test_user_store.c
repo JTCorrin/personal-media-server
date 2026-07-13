@@ -2,6 +2,7 @@
 
 #include "media_server/library/user_store.h"
 
+#include <sqlite3.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -78,10 +79,28 @@ void test_favourites_and_history(void)
     TEST_ASSERT_EQUAL_UINT(100, hist[1].track_id);
 }
 
+void test_user_store_rejects_unknown_schema_version(void)
+{
+    sqlite3 *db = NULL;
+
+    user_store_close(store);
+    store = NULL;
+
+    TEST_ASSERT_EQUAL_INT(SQLITE_OK, sqlite3_open(db_path, &db));
+    TEST_ASSERT_EQUAL_INT(
+        SQLITE_OK,
+        sqlite3_exec(db, "UPDATE meta SET schema_version = 999 WHERE id = 1;",
+                     NULL, NULL, NULL));
+    sqlite3_close(db);
+
+    TEST_ASSERT_NULL(user_store_open(db_path));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_playlist_create_and_tracks);
     RUN_TEST(test_favourites_and_history);
+    RUN_TEST(test_user_store_rejects_unknown_schema_version);
     return UNITY_END();
 }

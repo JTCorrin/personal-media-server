@@ -34,6 +34,25 @@ void catalog_destroy(catalog_t *catalog)
     free(catalog);
 }
 
+int catalog_replace(catalog_t *dst, catalog_t *src)
+{
+    if (dst == NULL || src == NULL || dst == src) {
+        return -1;
+    }
+
+    free(dst->items);
+    dst->items = src->items;
+    dst->count = src->count;
+    dst->capacity = src->capacity;
+    dst->next_id = src->next_id;
+
+    src->items = NULL;
+    src->count = 0;
+    src->capacity = 0;
+    src->next_id = 1;
+    return 0;
+}
+
 static int ensure_capacity(catalog_t *catalog)
 {
     if (catalog->count < catalog->capacity) {
@@ -57,7 +76,7 @@ int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
     size_t path_len;
 
     if (catalog == NULL || rel_path == NULL || rel_path[0] == '\0' ||
-        kind == MEDIA_KIND_NONE) {
+        kind == MEDIA_KIND_NONE || catalog->next_id == UINT32_MAX) {
         return -1;
     }
 
@@ -105,7 +124,10 @@ int catalog_add_item(catalog_t *catalog, const catalog_item_t *item)
     catalog_item_t *dst;
 
     if (catalog == NULL || item == NULL || item->id == 0 ||
-        item->kind == MEDIA_KIND_NONE || item->path[0] == '\0') {
+        (item->kind != MEDIA_KIND_AUDIO && item->kind != MEDIA_KIND_IMAGE) ||
+        item->path[0] == '\0' || item->id == UINT32_MAX ||
+        catalog_find_id(catalog, item->id) != NULL ||
+        catalog_find_path(catalog, item->path) != NULL) {
         return -1;
     }
 
@@ -153,6 +175,9 @@ int catalog_adopt_ids(catalog_t *fresh, const catalog_t *previous)
     next = previous->next_id;
     for (size_t i = 0; i < previous->count; i++) {
         if (previous->items[i].id >= next) {
+            if (previous->items[i].id == UINT32_MAX) {
+                return -1;
+            }
             next = previous->items[i].id + 1;
         }
     }
@@ -163,6 +188,9 @@ int catalog_adopt_ids(catalog_t *fresh, const catalog_t *previous)
         if (old != NULL) {
             fresh->items[i].id = old->id;
         } else {
+            if (next == UINT32_MAX) {
+                return -1;
+            }
             fresh->items[i].id = next++;
         }
         if (fresh->items[i].id > max_id) {
@@ -170,6 +198,9 @@ int catalog_adopt_ids(catalog_t *fresh, const catalog_t *previous)
         }
     }
 
+    if (max_id == UINT32_MAX) {
+        return -1;
+    }
     fresh->next_id = max_id + 1;
     if (fresh->next_id < next) {
         fresh->next_id = next;

@@ -4,6 +4,7 @@
 #include "media_server/library/catalog_store.h"
 #include "media_server/media/kind.h"
 
+#include <sqlite3.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -70,6 +71,60 @@ void test_catalog_store_rejects_root_mismatch(void)
     catalog_destroy(loaded);
 }
 
+void test_catalog_store_failure_does_not_modify_destination(void)
+{
+    catalog_t *loaded = catalog_create();
+    sqlite3 *db = NULL;
+
+    TEST_ASSERT_NOT_NULL(loaded);
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/B/valid.mp3"));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE, "A/B/cover.jpg"));
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_save(db_path, "/music/a", catalog));
+
+    TEST_ASSERT_EQUAL_INT(SQLITE_OK, sqlite3_open(db_path, &db));
+    TEST_ASSERT_EQUAL_INT(
+        SQLITE_OK,
+        sqlite3_exec(db, "UPDATE items SET kind = 0 WHERE id = 2;", NULL, NULL,
+                     NULL));
+    sqlite3_close(db);
+
+    /* A pre-existing destination must be unchanged after a partial DB read. */
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(loaded, MEDIA_KIND_AUDIO, "Existing/Album/keep.mp3"));
+    TEST_ASSERT_EQUAL_INT(-1,
+                          catalog_store_load(db_path, "/music/a", loaded));
+    TEST_ASSERT_EQUAL_UINT(1, catalog_count(loaded));
+    TEST_ASSERT_EQUAL_STRING("Existing/Album/keep.mp3",
+                             catalog_get(loaded, 0)->path);
+
+    catalog_destroy(loaded);
+}
+
+void test_catalog_store_rejects_inconsistent_next_id(void)
+{
+    catalog_t *loaded = catalog_create();
+    sqlite3 *db = NULL;
+
+    TEST_ASSERT_NOT_NULL(loaded);
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/B/valid.mp3"));
+    catalog_set_next_id(catalog, 50);
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_save(db_path, "/music/a", catalog));
+
+    TEST_ASSERT_EQUAL_INT(SQLITE_OK, sqlite3_open(db_path, &db));
+    TEST_ASSERT_EQUAL_INT(
+        SQLITE_OK,
+        sqlite3_exec(db, "UPDATE meta SET next_id = 1;", NULL, NULL, NULL));
+    sqlite3_close(db);
+
+    TEST_ASSERT_EQUAL_INT(-1,
+                          catalog_store_load(db_path, "/music/a", loaded));
+    TEST_ASSERT_EQUAL_UINT(0, catalog_count(loaded));
+    catalog_destroy(loaded);
+}
+
 void test_catalog_adopt_ids_reuses_paths(void)
 {
     catalog_t *fresh = catalog_create();
@@ -115,6 +170,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_catalog_store_round_trip);
     RUN_TEST(test_catalog_store_rejects_root_mismatch);
+    RUN_TEST(test_catalog_store_failure_does_not_modify_destination);
+    RUN_TEST(test_catalog_store_rejects_inconsistent_next_id);
     RUN_TEST(test_catalog_adopt_ids_reuses_paths);
     return UNITY_END();
 }

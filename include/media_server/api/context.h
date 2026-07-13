@@ -7,7 +7,7 @@
 #include "media_server/library/user_store.h"
 
 #include <pthread.h>
-#include <signal.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <time.h>
@@ -28,9 +28,9 @@ typedef struct app_context {
 
     pthread_mutex_t mu;
     bool scanning;
-    bool worker_alive;
+    bool worker_joinable;
     pthread_t worker;
-    volatile sig_atomic_t cancel_scan;
+    atomic_bool cancel_scan;
     time_t last_scan_unix;
     bool last_scan_ok;
     char last_error[128];

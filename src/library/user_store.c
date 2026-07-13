@@ -68,21 +68,37 @@ static int ensure_schema(sqlite3 *db)
         return -1;
     }
 
-    /* Upsert schema version. */
+    /* Initialize a new DB, but never silently bless an incompatible schema. */
     {
         sqlite3_stmt *stmt = NULL;
-        if (sqlite3_prepare_v2(db,
-                               "INSERT INTO meta (id, schema_version) VALUES (1, ?) "
-                               "ON CONFLICT(id) DO UPDATE SET schema_version=excluded.schema_version;",
+        int rc;
+
+        if (sqlite3_prepare_v2(db, "SELECT schema_version FROM meta WHERE id = 1;",
                                -1, &stmt, NULL) != SQLITE_OK) {
             return -1;
         }
-        sqlite3_bind_int(stmt, 1, USER_STORE_SCHEMA_VERSION);
-        if (sqlite3_step(stmt) != SQLITE_DONE) {
+        rc = sqlite3_step(stmt);
+        if (rc == SQLITE_ROW) {
+            int version = sqlite3_column_int(stmt, 0);
             sqlite3_finalize(stmt);
-            return -1;
+            return version == USER_STORE_SCHEMA_VERSION ? 0 : -1;
         }
         sqlite3_finalize(stmt);
+        if (rc != SQLITE_DONE) {
+            return -1;
+        }
+
+        if (sqlite3_prepare_v2(
+                db, "INSERT INTO meta (id, schema_version) VALUES (1, ?);", -1,
+                &stmt, NULL) != SQLITE_OK) {
+            return -1;
+        }
+        sqlite3_bind_int(stmt, 1, USER_STORE_SCHEMA_VERSION);
+        rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if (rc != SQLITE_DONE) {
+            return -1;
+        }
     }
     return 0;
 }
@@ -109,6 +125,7 @@ user_store_t *user_store_open(const char *db_path)
         free(store);
         return NULL;
     }
+    sqlite3_busy_timeout(store->db, 5000);
 
     if (exec_sql(store->db, "PRAGMA foreign_keys=ON;") != 0 ||
         exec_sql(store->db, "PRAGMA journal_mode=WAL;") != 0 ||

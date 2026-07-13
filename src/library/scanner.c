@@ -18,12 +18,11 @@
  */
 #define SCANNER_MAX_DEPTH 32
 
-/* Test hook: while this file exists under the library root, the scanner waits
- * (and honors cancel). Production libraries simply omit the file. */
+#ifdef MEDIA_SERVER_TEST_SCAN_HOLD
+/* Test-only hook: production builds must never let a library file pause scans. */
 #define SCANNER_HOLD_NAME ".media_server_scan_hold"
-
 static int wait_for_hold_release(const char *library_root,
-                                 volatile sig_atomic_t *cancel)
+                                 const atomic_bool *cancel)
 {
     char hold_path[CATALOG_PATH_MAX];
     struct timespec ts = {.tv_sec = 0, .tv_nsec = 5 * 1000 * 1000};
@@ -34,29 +33,23 @@ static int wait_for_hold_release(const char *library_root,
     }
 
     while (access(hold_path, F_OK) == 0) {
-        if (cancel != NULL && *cancel) {
+        if (cancel != NULL && atomic_load(cancel)) {
             return 1;
         }
         nanosleep(&ts, NULL);
     }
     return 0;
 }
-
-/*
- * Hard cap on directory nesting. Each recursion level uses ~1.5 KB of stack
- * for the path buffers, and without a cap a symlink cycle or an adversarial
- * deep tree could exhaust the stack.
- */
-#define SCANNER_MAX_DEPTH 32
+#endif
 
 static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *catalog,
-                    int depth, volatile sig_atomic_t *cancel)
+                    int depth, const atomic_bool *cancel)
 {
     char abs_dir[CATALOG_PATH_MAX];
     DIR *dir;
     struct dirent *entry;
 
-    if (cancel != NULL && *cancel) {
+    if (cancel != NULL && atomic_load(cancel)) {
         return 1;
     }
 
@@ -88,7 +81,7 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
         media_kind_t kind;
         int rc;
 
-        if (cancel != NULL && *cancel) {
+        if (cancel != NULL && atomic_load(cancel)) {
             closedir(dir);
             return 1;
         }
@@ -148,7 +141,9 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
         }
 
         if (catalog_add(catalog, kind, child_rel) != 0) {
-            LOG_WARN("scanner", "failed to add %s", child_rel);
+            LOG_ERROR("scanner", "failed to add %s", child_rel);
+            closedir(dir);
+            return -1;
         }
     }
 
@@ -157,18 +152,20 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
 }
 
 int scanner_scan_cancelable(const char *library_root, catalog_t *catalog,
-                            volatile sig_atomic_t *cancel)
+                            const atomic_bool *cancel)
 {
-    int hold_rc;
-
     if (library_root == NULL || library_root[0] == '\0' || catalog == NULL) {
         return -1;
     }
 
-    hold_rc = wait_for_hold_release(library_root, cancel);
-    if (hold_rc != 0) {
-        return hold_rc;
+#ifdef MEDIA_SERVER_TEST_SCAN_HOLD
+    {
+        int hold_rc = wait_for_hold_release(library_root, cancel);
+        if (hold_rc != 0) {
+            return hold_rc;
+        }
     }
+#endif
 
     return scan_dir(library_root, "", catalog, 0, cancel);
 }

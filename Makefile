@@ -108,6 +108,9 @@ build/tests/test_%: tests/test_%.c $$(UNIT_%_SRCS) $(UNITY_SRC)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(UNITY_CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
+# Enable the filesystem scan hold hook only in the runtime test binary.
+build/tests/test_runtime: CFLAGS += -DMEDIA_SERVER_TEST_SCAN_HOLD
+
 test: $(TEST_BINS)
 	@failed=0; \
 	for t in $(TEST_BINS); do \

@@ -3,7 +3,7 @@
 
 #include "media_server/library/catalog.h"
 
-#include <signal.h>
+#include <stdatomic.h>
 
 /*
  * Recursively scan library_root and add recognized media files to catalog.
@@ -18,6 +18,6 @@ int scanner_scan(const char *library_root, catalog_t *catalog);
  * Returns 0 on success, -1 on hard failure, 1 if cancelled.
  */
 int scanner_scan_cancelable(const char *library_root, catalog_t *catalog,
-                            volatile sig_atomic_t *cancel);
+                            const atomic_bool *cancel);
 
 #endif /* MEDIA_SERVER_LIBRARY_SCANNER_H */

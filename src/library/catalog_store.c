@@ -52,8 +52,10 @@ int catalog_store_load(const char *db_path, const char *library_root, catalog_t 
 {
     sqlite3 *db = NULL;
     sqlite3_stmt *stmt = NULL;
+    catalog_t *loaded = NULL;
     const char *stored_root = NULL;
     uint32_t next_id = 1;
+    uint32_t max_id = 0;
     int schema_version = 0;
     int rc;
 
@@ -62,43 +64,46 @@ int catalog_store_load(const char *db_path, const char *library_root, catalog_t 
         return -1;
     }
 
-    rc = sqlite3_open(db_path, &db);
-    if (rc != SQLITE_OK) {
-        if (db != NULL) {
-            sqlite3_close(db);
-        }
+    loaded = catalog_create();
+    if (loaded == NULL) {
         return -1;
     }
 
+    rc = sqlite3_open(db_path, &db);
+    if (rc != SQLITE_OK) {
+        goto fail;
+    }
+    sqlite3_busy_timeout(db, 5000);
+
     if (ensure_schema(db) != 0) {
-        sqlite3_close(db);
-        return -1;
+        goto fail;
     }
 
     rc = sqlite3_prepare_v2(
         db, "SELECT library_root, next_id, schema_version FROM meta WHERE id = 1;", -1,
         &stmt, NULL);
     if (rc != SQLITE_OK) {
-        sqlite3_close(db);
-        return -1;
+        goto fail;
     }
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_ROW) {
-        sqlite3_finalize(stmt);
-        sqlite3_close(db);
-        return -1;
+        goto fail;
     }
 
     stored_root = (const char *)sqlite3_column_text(stmt, 0);
-    next_id = (uint32_t)sqlite3_column_int64(stmt, 1);
+    {
+        sqlite3_int64 raw_next_id = sqlite3_column_int64(stmt, 1);
+        if (raw_next_id <= 0 || raw_next_id > UINT32_MAX) {
+            goto fail;
+        }
+        next_id = (uint32_t)raw_next_id;
+    }
     schema_version = sqlite3_column_int(stmt, 2);
 
     if (stored_root == NULL || strcmp(stored_root, library_root) != 0 ||
-        schema_version != CATALOG_STORE_SCHEMA_VERSION || next_id == 0) {
-        sqlite3_finalize(stmt);
-        sqlite3_close(db);
-        return -1;
+        schema_version != CATALOG_STORE_SCHEMA_VERSION) {
+        goto fail;
     }
 
     sqlite3_finalize(stmt);
@@ -109,8 +114,7 @@ int catalog_store_load(const char *db_path, const char *library_root, catalog_t 
                             "FROM items ORDER BY id;",
                             -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
-        sqlite3_close(db);
-        return -1;
+        goto fail;
     }
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -122,8 +126,17 @@ int catalog_store_load(const char *db_path, const char *library_root, catalog_t 
         const char *title;
 
         memset(&item, 0, sizeof(item));
-        item.id = (uint32_t)sqlite3_column_int64(stmt, 0);
-        item.kind = (media_kind_t)sqlite3_column_int(stmt, 1);
+        {
+            sqlite3_int64 raw_id = sqlite3_column_int64(stmt, 0);
+            int raw_kind = sqlite3_column_int(stmt, 1);
+
+            if (raw_id <= 0 || raw_id >= UINT32_MAX ||
+                (raw_kind != MEDIA_KIND_AUDIO && raw_kind != MEDIA_KIND_IMAGE)) {
+                goto fail;
+            }
+            item.id = (uint32_t)raw_id;
+            item.kind = (media_kind_t)raw_kind;
+        }
         path = (const char *)sqlite3_column_text(stmt, 2);
         filename = (const char *)sqlite3_column_text(stmt, 3);
         artist = (const char *)sqlite3_column_text(stmt, 4);
@@ -131,14 +144,11 @@ int catalog_store_load(const char *db_path, const char *library_root, catalog_t 
         title = (const char *)sqlite3_column_text(stmt, 6);
 
         if (path == NULL || filename == NULL || artist == NULL || album == NULL ||
-            title == NULL || item.id == 0 || item.kind == MEDIA_KIND_NONE ||
-            strlen(path) >= CATALOG_PATH_MAX ||
+            title == NULL || strlen(path) >= CATALOG_PATH_MAX ||
             strlen(filename) >= CATALOG_FILENAME_MAX ||
             strlen(artist) >= CATALOG_META_MAX || strlen(album) >= CATALOG_META_MAX ||
             strlen(title) >= CATALOG_META_MAX) {
-            sqlite3_finalize(stmt);
-            sqlite3_close(db);
-            return -1;
+            goto fail;
         }
 
         memcpy(item.path, path, strlen(path) + 1);
@@ -147,22 +157,39 @@ int catalog_store_load(const char *db_path, const char *library_root, catalog_t 
         memcpy(item.album, album, strlen(album) + 1);
         memcpy(item.title, title, strlen(title) + 1);
 
-        if (catalog_add_item(out, &item) != 0) {
-            sqlite3_finalize(stmt);
-            sqlite3_close(db);
-            return -1;
+        if (catalog_add_item(loaded, &item) != 0) {
+            goto fail;
+        }
+        if (item.id > max_id) {
+            max_id = item.id;
         }
     }
 
-    sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) {
-        sqlite3_close(db);
-        return -1;
+        goto fail;
     }
 
-    catalog_set_next_id(out, next_id);
+    if (max_id >= next_id) {
+        goto fail;
+    }
+
+    catalog_set_next_id(loaded, next_id);
+    if (catalog_replace(out, loaded) != 0) {
+        goto fail;
+    }
+
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
+    catalog_destroy(loaded);
     return 0;
+
+fail:
+    sqlite3_finalize(stmt);
+    if (db != NULL) {
+        sqlite3_close(db);
+    }
+    catalog_destroy(loaded);
+    return -1;
 }
 
 int catalog_store_save(const char *db_path, const char *library_root,
@@ -184,6 +211,7 @@ int catalog_store_save(const char *db_path, const char *library_root,
         }
         return -1;
     }
+    sqlite3_busy_timeout(db, 5000);
 
     if (ensure_schema(db) != 0) {
         sqlite3_close(db);

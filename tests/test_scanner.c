@@ -178,7 +178,7 @@ void test_scanner_skips_symlinks_and_survives_cycles(void)
 
 void test_scanner_cancelable_stops_early(void)
 {
-    volatile sig_atomic_t cancel = 1;
+    atomic_bool cancel = true;
 
     TEST_ASSERT_EQUAL_INT(1, scanner_scan_cancelable(FIXTURE_LIBRARY, catalog, &cancel));
     TEST_ASSERT_EQUAL_UINT(0, catalog_count(catalog));

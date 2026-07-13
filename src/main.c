@@ -1,3 +1,7 @@
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
+
 #include "media_server/api/routes.h"
 #include "media_server/config.h"
 #include "media_server/http/router.h"
@@ -14,6 +18,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 
 static volatile sig_atomic_t g_stop = 0;
@@ -54,6 +59,7 @@ int main(int argc, char *argv[])
     int exit_code = 1;
     bool runtime_ready = false;
     bool loaded_from_db = false;
+    char *canonical_library_root = NULL;
 
     if (config_parse_args(argc, argv, &config) != 0) {
         return 1;
@@ -72,6 +78,16 @@ int main(int argc, char *argv[])
     if (log_init(&config.log) != 0) {
         fprintf(stderr, "failed to initialize logging\n");
         return 1;
+    }
+
+    if (config.library_dir != NULL) {
+        canonical_library_root = realpath(config.library_dir, NULL);
+        if (canonical_library_root == NULL) {
+            LOG_ERROR("main", "failed to resolve library root: %s",
+                      config.library_dir);
+            goto cleanup;
+        }
+        config.library_dir = canonical_library_root;
     }
 
     catalog = catalog_create();
@@ -105,8 +121,9 @@ int main(int argc, char *argv[])
         if (config.catalog_db_path != NULL) {
             if (catalog_store_save(config.catalog_db_path, config.library_dir,
                                    catalog) != 0) {
-                LOG_WARN("main", "failed to save catalog snapshot: %s",
-                         config.catalog_db_path);
+                LOG_ERROR("main", "failed to save catalog snapshot: %s",
+                          config.catalog_db_path);
+                goto cleanup;
             } else {
                 LOG_INFO("main", "saved catalog snapshot: %s", config.catalog_db_path);
             }
@@ -171,6 +188,14 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
+    /*
+     * A snapshot provides fast startup, then a background rescan reconciles
+     * filesystem changes made while the server was stopped.
+     */
+    if (loaded_from_db && library_scan_request(&app_ctx, false) != 0) {
+        LOG_WARN("main", "failed to schedule startup catalog refresh");
+    }
+
     LOG_INFO("main", "media-server ready");
 
     while (!g_stop) {
@@ -191,6 +216,7 @@ cleanup:
     catalog_destroy(app_ctx.catalog);
     browse_index_destroy(browse);
     catalog_destroy(catalog);
+    free(canonical_library_root);
     log_shutdown();
     return exit_code;
 }
