@@ -16,6 +16,7 @@ void test_config_defaults(void)
     TEST_ASSERT_NULL(config.log.file_path);
     TEST_ASSERT_EQUAL_STRING(CONFIG_LISTEN_URL_DEFAULT, config.listen_url);
     TEST_ASSERT_NULL(config.library_dir);
+    TEST_ASSERT_NULL(config.catalog_db_path);
     TEST_ASSERT_FALSE(config.show_help);
 }
 
@@ -28,14 +29,17 @@ void test_config_parse_listen_and_library_dir(void)
         "http://127.0.0.1:9090",
         "--library-dir",
         "/data/music",
+        "--catalog-db",
+        "/var/lib/media-server/catalog.db",
         "--log-level",
         "debug",
         "--no-terminal-log",
     };
 
-    TEST_ASSERT_EQUAL_INT(0, config_parse_args(8, argv, &config));
+    TEST_ASSERT_EQUAL_INT(0, config_parse_args(10, argv, &config));
     TEST_ASSERT_EQUAL_STRING("http://127.0.0.1:9090", config.listen_url);
     TEST_ASSERT_EQUAL_STRING("/data/music", config.library_dir);
+    TEST_ASSERT_EQUAL_STRING("/var/lib/media-server/catalog.db", config.catalog_db_path);
     TEST_ASSERT_EQUAL(LOG_DEBUG, config.log.level);
     TEST_ASSERT_FALSE(config.log.terminal);
     TEST_ASSERT_FALSE(config.show_help);

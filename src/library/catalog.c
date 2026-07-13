@@ -34,6 +34,22 @@ void catalog_destroy(catalog_t *catalog)
     free(catalog);
 }
 
+static int ensure_capacity(catalog_t *catalog)
+{
+    if (catalog->count < catalog->capacity) {
+        return 0;
+    }
+
+    size_t new_cap = catalog->capacity == 0 ? 8 : catalog->capacity * 2;
+    catalog_item_t *grown = realloc(catalog->items, new_cap * sizeof(*grown));
+    if (grown == NULL) {
+        return -1;
+    }
+    catalog->items = grown;
+    catalog->capacity = new_cap;
+    return 0;
+}
+
 int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
 {
     catalog_item_t *item;
@@ -57,14 +73,9 @@ int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
     }
 
     if (catalog->count == catalog->capacity) {
-        size_t new_cap = catalog->capacity == 0 ? 8 : catalog->capacity * 2;
-        catalog_item_t *grown =
-            realloc(catalog->items, new_cap * sizeof(*grown));
-        if (grown == NULL) {
+        if (ensure_capacity(catalog) != 0) {
             return -1;
         }
-        catalog->items = grown;
-        catalog->capacity = new_cap;
     }
 
     item = &catalog->items[catalog->count];
@@ -87,6 +98,95 @@ int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path)
 
     catalog->count++;
     return 0;
+}
+
+int catalog_add_item(catalog_t *catalog, const catalog_item_t *item)
+{
+    catalog_item_t *dst;
+
+    if (catalog == NULL || item == NULL || item->id == 0 ||
+        item->kind == MEDIA_KIND_NONE || item->path[0] == '\0') {
+        return -1;
+    }
+
+    if (ensure_capacity(catalog) != 0) {
+        return -1;
+    }
+
+    dst = &catalog->items[catalog->count];
+    *dst = *item;
+    catalog->count++;
+
+    if (item->id >= catalog->next_id) {
+        catalog->next_id = item->id + 1;
+    }
+    return 0;
+}
+
+const catalog_item_t *catalog_find_path(const catalog_t *catalog, const char *rel_path)
+{
+    if (catalog == NULL || rel_path == NULL) {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < catalog->count; i++) {
+        if (strcmp(catalog->items[i].path, rel_path) == 0) {
+            return &catalog->items[i];
+        }
+    }
+    return NULL;
+}
+
+int catalog_adopt_ids(catalog_t *fresh, const catalog_t *previous)
+{
+    uint32_t next;
+    uint32_t max_id = 0;
+
+    if (fresh == NULL) {
+        return -1;
+    }
+
+    if (previous == NULL || catalog_count(previous) == 0) {
+        return 0;
+    }
+
+    next = previous->next_id;
+    for (size_t i = 0; i < previous->count; i++) {
+        if (previous->items[i].id >= next) {
+            next = previous->items[i].id + 1;
+        }
+    }
+
+    for (size_t i = 0; i < fresh->count; i++) {
+        const catalog_item_t *old =
+            catalog_find_path(previous, fresh->items[i].path);
+        if (old != NULL) {
+            fresh->items[i].id = old->id;
+        } else {
+            fresh->items[i].id = next++;
+        }
+        if (fresh->items[i].id > max_id) {
+            max_id = fresh->items[i].id;
+        }
+    }
+
+    fresh->next_id = max_id + 1;
+    if (fresh->next_id < next) {
+        fresh->next_id = next;
+    }
+    return 0;
+}
+
+uint32_t catalog_next_id(const catalog_t *catalog)
+{
+    return catalog == NULL ? 1 : catalog->next_id;
+}
+
+void catalog_set_next_id(catalog_t *catalog, uint32_t next_id)
+{
+    if (catalog != NULL && next_id > 0) {
+        catalog->next_id = next_id;
+    }
 }
 
 size_t catalog_count(const catalog_t *catalog)

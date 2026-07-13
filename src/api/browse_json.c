@@ -32,6 +32,12 @@ int append_album_json(string_buf_t *sb, const browse_album_t *album)
     if (string_buf_append_json_string(sb, album->artist) != 0) {
         return -1;
     }
-    return string_buf_append_fmt(sb, ",\"artist_id\":%u,\"track_count\":%zu}",
-                                 album->artist_id, album->track_count);
+    if (string_buf_append_fmt(sb, ",\"artist_id\":%u,\"track_count\":%zu,",
+                              album->artist_id, album->track_count) != 0) {
+        return -1;
+    }
+    if (album->cover_id == 0) {
+        return string_buf_append(sb, "\"cover_id\":null}");
+    }
+    return string_buf_append_fmt(sb, "\"cover_id\":%u}", album->cover_id);
 }

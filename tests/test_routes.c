@@ -4,10 +4,12 @@
 #include "media_server/http/router.h"
 #include "media_server/http/server.h"
 #include "media_server/library/catalog.h"
+#include "media_server/library/runtime.h"
 
 #include "mongoose.h"
 
 #include <stddef.h>
+#include <string.h>
 
 static router_t *router;
 static catalog_t *catalog;
@@ -36,13 +38,13 @@ static const expected_route_t LIVE_ROUTES[] = {
     {"GET", "/api/albums/1", "/api/albums/:id"},
     {"GET", "/api/albums/1/tracks", "/api/albums/:id/tracks"},
     {"GET", "/api/search", "/api/search"},
+    {"GET", "/api/library/status", "/api/library/status"},
+    {"POST", "/api/library/scan", "/api/library/scan"},
     {"GET", "/stream/1", "/stream/:id"},
     {"GET", "/cover/3", "/cover/:id"},
 };
 
 static const expected_route_t STUB_ROUTES[] = {
-    {"POST", "/api/library/scan", "/api/library/scan"},
-    {"GET", "/api/library/status", "/api/library/status"},
     {"GET", "/api/playlists", "/api/playlists"},
     {"POST", "/api/playlists", "/api/playlists"},
     {"GET", "/api/playlists/1", "/api/playlists/:id"},
@@ -54,16 +56,19 @@ static const expected_route_t STUB_ROUTES[] = {
 
 void setUp(void)
 {
+    memset(&ctx, 0, sizeof(ctx));
     router = router_create();
     catalog = catalog_create();
     TEST_ASSERT_NOT_NULL(router);
     TEST_ASSERT_NOT_NULL(catalog);
     ctx.catalog = catalog;
     ctx.library_dir = "tests/fixtures/library";
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&ctx));
 }
 
 void tearDown(void)
 {
+    library_runtime_shutdown(&ctx);
     router_destroy(router);
     catalog_destroy(catalog);
 }

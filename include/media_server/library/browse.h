@@ -9,11 +9,12 @@
 
 /*
  * In-memory artist/album index derived from catalog audio items.
- * IDs are synthetic and stable for a given catalog content / discovery order
- * (not persisted across rescans yet).
+ * Artist/album IDs are synthetic and stable for a given catalog content /
+ * discovery order (not persisted across rescans yet).
  *
  * Artists: unique non-empty artist names from audio.
  * Albums:  unique (artist, album) pairs with non-empty album from audio.
+ * cover_id: catalog image id matched by artist+album (0 if none).
  */
 
 typedef struct browse_index browse_index_t;
@@ -30,6 +31,7 @@ typedef struct browse_album {
     char name[CATALOG_META_MAX];
     char artist[CATALOG_META_MAX];
     uint32_t artist_id; /* 0 if artist was empty / not indexed */
+    uint32_t cover_id;  /* catalog image id; 0 if none */
     size_t track_count;
 } browse_album_t;
 

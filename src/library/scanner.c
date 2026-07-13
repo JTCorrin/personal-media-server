@@ -8,6 +8,39 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+/*
+ * Hard cap on directory nesting. Each recursion level uses ~1.5 KB of stack
+ * for the path buffers, and without a cap a symlink cycle or an adversarial
+ * deep tree could exhaust the stack.
+ */
+#define SCANNER_MAX_DEPTH 32
+
+/* Test hook: while this file exists under the library root, the scanner waits
+ * (and honors cancel). Production libraries simply omit the file. */
+#define SCANNER_HOLD_NAME ".media_server_scan_hold"
+
+static int wait_for_hold_release(const char *library_root,
+                                 volatile sig_atomic_t *cancel)
+{
+    char hold_path[CATALOG_PATH_MAX];
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 5 * 1000 * 1000};
+
+    if (path_join(hold_path, sizeof(hold_path), library_root, SCANNER_HOLD_NAME) !=
+        0) {
+        return -1;
+    }
+
+    while (access(hold_path, F_OK) == 0) {
+        if (cancel != NULL && *cancel) {
+            return 1;
+        }
+        nanosleep(&ts, NULL);
+    }
+    return 0;
+}
 
 /*
  * Hard cap on directory nesting. Each recursion level uses ~1.5 KB of stack
@@ -17,11 +50,15 @@
 #define SCANNER_MAX_DEPTH 32
 
 static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *catalog,
-                    int depth)
+                    int depth, volatile sig_atomic_t *cancel)
 {
     char abs_dir[CATALOG_PATH_MAX];
     DIR *dir;
     struct dirent *entry;
+
+    if (cancel != NULL && *cancel) {
+        return 1;
+    }
 
     if (depth > SCANNER_MAX_DEPTH) {
         LOG_WARN("scanner", "skipping %s: max depth (%d) exceeded", rel_dir,
@@ -49,6 +86,12 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
         char child_abs[CATALOG_PATH_MAX];
         struct stat st;
         media_kind_t kind;
+        int rc;
+
+        if (cancel != NULL && *cancel) {
+            closedir(dir);
+            return 1;
+        }
 
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -84,12 +127,12 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
         }
 
         if (S_ISDIR(st.st_mode)) {
-            /*
-             * A subdirectory that cannot be scanned (e.g. permission denied)
-             * should not fail the whole library scan; scan_dir already logged
-             * the reason. Only the root failing is a hard error (see below).
-             */
-            if (scan_dir(library_root, child_rel, catalog, depth + 1) != 0) {
+            rc = scan_dir(library_root, child_rel, catalog, depth + 1, cancel);
+            if (rc == 1) {
+                closedir(dir);
+                return 1;
+            }
+            if (rc != 0) {
                 LOG_WARN("scanner", "skipping unreadable directory %s", child_rel);
             }
             continue;
@@ -113,11 +156,24 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
     return 0;
 }
 
-int scanner_scan(const char *library_root, catalog_t *catalog)
+int scanner_scan_cancelable(const char *library_root, catalog_t *catalog,
+                            volatile sig_atomic_t *cancel)
 {
+    int hold_rc;
+
     if (library_root == NULL || library_root[0] == '\0' || catalog == NULL) {
         return -1;
     }
 
-    return scan_dir(library_root, "", catalog, 0);
+    hold_rc = wait_for_hold_release(library_root, cancel);
+    if (hold_rc != 0) {
+        return hold_rc;
+    }
+
+    return scan_dir(library_root, "", catalog, 0, cancel);
+}
+
+int scanner_scan(const char *library_root, catalog_t *catalog)
+{
+    return scanner_scan_cancelable(library_root, catalog, NULL);
 }

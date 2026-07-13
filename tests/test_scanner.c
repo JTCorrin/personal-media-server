@@ -4,6 +4,7 @@
 #include "media_server/library/scanner.h"
 #include "media_server/media/kind.h"
 
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,6 +176,14 @@ void test_scanner_skips_symlinks_and_survives_cycles(void)
     remove_symlink_library(root);
 }
 
+void test_scanner_cancelable_stops_early(void)
+{
+    volatile sig_atomic_t cancel = 1;
+
+    TEST_ASSERT_EQUAL_INT(1, scanner_scan_cancelable(FIXTURE_LIBRARY, catalog, &cancel));
+    TEST_ASSERT_EQUAL_UINT(0, catalog_count(catalog));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -183,5 +192,6 @@ int main(void)
     RUN_TEST(test_scanner_rejects_bad_args);
     RUN_TEST(test_scanner_continues_past_unreadable_subdir);
     RUN_TEST(test_scanner_skips_symlinks_and_survives_cycles);
+    RUN_TEST(test_scanner_cancelable_stops_early);
     return UNITY_END();
 }

@@ -8,34 +8,51 @@ LISTEN="http://127.0.0.1:${PORT}"
 LIBRARY="${ROOT}/tests/fixtures/library"
 BIN="${ROOT}/media-server"
 LOG="$(mktemp)"
+CATALOG_DB="$(mktemp --suffix=.db)"
 PID=""
 
 cleanup() {
+  rm -f "${LIBRARY}/.media_server_scan_hold" 2>/dev/null || true
   if [[ -n "${PID}" ]] && kill -0 "${PID}" 2>/dev/null; then
     kill "${PID}" 2>/dev/null || true
     wait "${PID}" 2>/dev/null || true
   fi
-  rm -f "${LOG}"
+  rm -f "${LOG}" "${CATALOG_DB}"
 }
 trap cleanup EXIT
 
 cd "${ROOT}"
 make media-server >/dev/null
 
-"${BIN}" --listen "${LISTEN}" --library-dir "${LIBRARY}" --log-level info >"${LOG}" 2>&1 &
-PID=$!
+start_server() {
+  "${BIN}" --listen "${LISTEN}" --library-dir "${LIBRARY}" \
+    --catalog-db "${CATALOG_DB}" --log-level info >"${LOG}" 2>&1 &
+  PID=$!
 
-for _ in $(seq 1 50); do
-  if curl -sf "${LISTEN}/api/ping" >/dev/null 2>&1; then
-    break
+  for _ in $(seq 1 50); do
+    if curl -sf "${LISTEN}/api/ping" >/dev/null 2>&1; then
+      return 0
+    fi
+    if ! kill -0 "${PID}" 2>/dev/null; then
+      echo "server exited early; log:" >&2
+      cat "${LOG}" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  echo "server did not become ready" >&2
+  exit 1
+}
+
+stop_server() {
+  if [[ -n "${PID}" ]] && kill -0 "${PID}" 2>/dev/null; then
+    kill "${PID}" 2>/dev/null || true
+    wait "${PID}" 2>/dev/null || true
   fi
-  if ! kill -0 "${PID}" 2>/dev/null; then
-    echo "server exited early; log:" >&2
-    cat "${LOG}" >&2
-    exit 1
-  fi
-  sleep 0.1
-done
+  PID=""
+}
+
+start_server
 
 expect_status() {
   local method="$1"
@@ -102,14 +119,20 @@ if ! printf '%s' "${albums}" | grep -q '"name":"Album"'; then
   echo "FAIL /api/albums expected Album: ${albums}" >&2
   exit 1
 fi
+if ! printf '%s' "${albums}" | grep -qE '"cover_id":[1-9][0-9]*'; then
+  echo "FAIL /api/albums expected non-null cover_id: ${albums}" >&2
+  exit 1
+fi
 album_id="$(printf '%s' "${albums}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+cover_id="$(printf '%s' "${albums}" | sed -n 's/.*"cover_id":\([0-9]*\).*/\1/p' | head -1)"
 expect_status GET "/api/albums/${album_id}" 200
+expect_status GET "/cover/${cover_id}" 200
 album_tracks="$(curl -sf "${LISTEN}/api/albums/${album_id}/tracks")"
 if ! printf '%s' "${album_tracks}" | grep -q 'track01.mp3'; then
   echo "FAIL /api/albums/${album_id}/tracks missing track01: ${album_tracks}" >&2
   exit 1
 fi
-echo "OK GET /api/albums/${album_id}/tracks"
+echo "OK GET /api/albums/${album_id}/tracks (cover_id=${cover_id})"
 
 search="$(curl -sf "${LISTEN}/api/search?q=Artist")"
 if ! printf '%s' "${search}" | grep -q '"tracks"'; then
@@ -123,9 +146,105 @@ fi
 echo "OK GET /api/search?q=Artist"
 expect_status GET /api/search 400
 
+echo "==> library scan/status"
+SCAN_BODY="$(mktemp)"
+HOLD="${LIBRARY}/.media_server_scan_hold"
+status="$(curl -sf "${LISTEN}/api/library/status")"
+if ! printf '%s' "${status}" | grep -q '"scanning":false'; then
+  echo "FAIL /api/library/status expected scanning false: ${status}" >&2
+  exit 1
+fi
+if ! printf '%s' "${status}" | grep -q '"has_library":true'; then
+  echo "FAIL /api/library/status expected has_library: ${status}" >&2
+  exit 1
+fi
+echo "OK GET /api/library/status -> 200"
+
+touch "${HOLD}"
+scan="$(curl -s -o "${SCAN_BODY}" -w '%{http_code}' -X POST "${LISTEN}/api/library/scan")"
+if [[ "${scan}" != "202" ]]; then
+  rm -f "${HOLD}"
+  echo "FAIL POST /api/library/scan expected 202, got ${scan}" >&2
+  exit 1
+fi
+if ! grep -q '"status":"started"' "${SCAN_BODY}"; then
+  rm -f "${HOLD}"
+  echo "FAIL POST /api/library/scan body: $(cat "${SCAN_BODY}")" >&2
+  exit 1
+fi
+echo "OK POST /api/library/scan -> 202 started"
+
+# Wait until status reports scanning (hold keeps the worker parked).
+for _ in $(seq 1 100); do
+  status="$(curl -sf "${LISTEN}/api/library/status")"
+  if printf '%s' "${status}" | grep -q '"scanning":true'; then
+    break
+  fi
+  sleep 0.05
+done
+if ! printf '%s' "${status}" | grep -q '"scanning":true'; then
+  rm -f "${HOLD}"
+  echo "FAIL expected scanning true while held: ${status}" >&2
+  exit 1
+fi
+
+busy="$(curl -s -o "${SCAN_BODY}" -w '%{http_code}' -X POST "${LISTEN}/api/library/scan")"
+if [[ "${busy}" != "409" ]]; then
+  rm -f "${HOLD}"
+  echo "FAIL POST /api/library/scan while busy expected 409, got ${busy}" >&2
+  exit 1
+fi
+if ! grep -q 'scan_in_progress' "${SCAN_BODY}"; then
+  rm -f "${HOLD}"
+  echo "FAIL busy body: $(cat "${SCAN_BODY}")" >&2
+  exit 1
+fi
+echo "OK POST /api/library/scan -> 409 while in progress"
+
+force="$(curl -s -o "${SCAN_BODY}" -w '%{http_code}' -X POST \
+  "${LISTEN}/api/library/scan?force=1")"
+if [[ "${force}" != "202" ]]; then
+  rm -f "${HOLD}"
+  echo "FAIL POST /api/library/scan?force=1 expected 202, got ${force}" >&2
+  exit 1
+fi
+if ! grep -q '"status":"restarted"' "${SCAN_BODY}"; then
+  rm -f "${HOLD}"
+  echo "FAIL force body: $(cat "${SCAN_BODY}")" >&2
+  exit 1
+fi
+echo "OK POST /api/library/scan?force=1 -> 202 restarted"
+
+rm -f "${HOLD}" "${SCAN_BODY}"
+
+for _ in $(seq 1 100); do
+  status="$(curl -sf "${LISTEN}/api/library/status")"
+  if printf '%s' "${status}" | grep -q '"scanning":false'; then
+    break
+  fi
+  sleep 0.05
+done
+if ! printf '%s' "${status}" | grep -q '"scanning":false'; then
+  echo "FAIL scan did not finish: ${status}" >&2
+  exit 1
+fi
+if ! printf '%s' "${status}" | grep -q '"last_scan_ok":true'; then
+  echo "FAIL expected last_scan_ok: ${status}" >&2
+  exit 1
+fi
+echo "OK library scan completed"
+
+echo "==> catalog-db id stability across restart"
+stable_id="${audio_id}"
+expect_status GET "/api/tracks/${stable_id}" 200
+expect_status GET "/stream/${stable_id}" 200
+stop_server
+start_server
+expect_status GET "/api/tracks/${stable_id}" 200
+expect_status GET "/stream/${stable_id}" 200
+echo "OK catalog id ${stable_id} stable after restart"
+
 echo "==> stub routes (501)"
-expect_status POST /api/library/scan 501
-expect_status GET /api/library/status 501
 expect_status GET /api/playlists 501
 
 echo "smoke api: all checks passed"

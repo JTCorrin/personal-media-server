@@ -16,6 +16,7 @@ void config_init_defaults(app_config_t *config)
     config->log.sqlite_table = NULL;
     config->listen_url = CONFIG_LISTEN_URL_DEFAULT;
     config->library_dir = NULL;
+    config->catalog_db_path = NULL;
     config->show_help = false;
 }
 
@@ -27,6 +28,7 @@ void config_print_usage(const char *program)
             "Options:\n"
             "  --listen <url>         listen URL (default: %s)\n"
             "  --library-dir <path>   media library root directory\n"
+            "  --catalog-db <path>    sqlite catalog snapshot (stable ids / fast boot)\n"
             "  --log-level <name>     trace|debug|info|warn|error|fatal (default: info)\n"
             "  --no-terminal-log      disable stderr logging\n"
             "  --log-file <path>      also append logs to a file\n"
@@ -77,6 +79,14 @@ int config_parse_args(int argc, char *argv[], app_config_t *config)
                 return -1;
             }
             config->library_dir = argv[++i];
+            continue;
+        }
+
+        if (strcmp(argv[i], "--catalog-db") == 0) {
+            if (require_value(argc, i, "--catalog-db") != 0) {
+                return -1;
+            }
+            config->catalog_db_path = argv[++i];
             continue;
         }
 

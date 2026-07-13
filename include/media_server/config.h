@@ -17,7 +17,8 @@
 typedef struct app_config {
     log_config_t log;
     const char *listen_url;
-    const char *library_dir; /* optional library root; NULL if unset */
+    const char *library_dir;     /* optional library root; NULL if unset */
+    const char *catalog_db_path; /* optional SQLite catalog snapshot; NULL if unset */
     bool show_help;
 } app_config_t;
 

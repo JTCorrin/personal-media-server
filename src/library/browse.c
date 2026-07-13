@@ -2,6 +2,7 @@
 
 #include "media_server/media/kind.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,6 +35,82 @@ static browse_album_t *find_album_by_names(browse_index_t *index, const char *ar
         }
     }
     return NULL;
+}
+
+/* Higher is better: cover > folder > front > other. */
+static int cover_name_score(const char *filename)
+{
+    char stem[CATALOG_FILENAME_MAX];
+    const char *dot;
+    size_t stem_len;
+    size_t i;
+
+    if (filename == NULL || filename[0] == '\0') {
+        return 0;
+    }
+
+    dot = strrchr(filename, '.');
+    stem_len = (dot != NULL) ? (size_t)(dot - filename) : strlen(filename);
+    if (stem_len == 0 || stem_len >= sizeof(stem)) {
+        return 0;
+    }
+
+    memcpy(stem, filename, stem_len);
+    stem[stem_len] = '\0';
+    for (i = 0; i < stem_len; i++) {
+        stem[i] = (char)tolower((unsigned char)stem[i]);
+    }
+
+    if (strcmp(stem, "cover") == 0) {
+        return 3;
+    }
+    if (strcmp(stem, "folder") == 0) {
+        return 2;
+    }
+    if (strcmp(stem, "front") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+static void link_album_covers(browse_index_t *index, const catalog_t *catalog)
+{
+    for (size_t i = 0; i < catalog_count(catalog); i++) {
+        const catalog_item_t *item = catalog_get(catalog, i);
+        browse_album_t *album;
+        int score;
+        int best;
+
+        if (item == NULL || item->kind != MEDIA_KIND_IMAGE || item->album[0] == '\0') {
+            continue;
+        }
+
+        album = find_album_by_names(index, item->artist, item->album);
+        if (album == NULL) {
+            continue;
+        }
+
+        score = cover_name_score(item->filename);
+        if (album->cover_id == 0) {
+            album->cover_id = item->id;
+            continue;
+        }
+
+        /* Prefer higher score; on tie keep the lower catalog id (already set). */
+        best = 0;
+        {
+            const catalog_item_t *cur = catalog_find_id(catalog, album->cover_id);
+            if (cur != NULL) {
+                best = cover_name_score(cur->filename);
+            }
+        }
+
+        if (score > best) {
+            album->cover_id = item->id;
+        } else if (score == best && item->id < album->cover_id) {
+            album->cover_id = item->id;
+        }
+    }
 }
 
 static int ensure_artist_cap(browse_index_t *index)
@@ -153,6 +230,7 @@ browse_index_t *browse_index_build(const catalog_t *catalog)
         }
     }
 
+    link_album_covers(index, catalog);
     return index;
 }
 

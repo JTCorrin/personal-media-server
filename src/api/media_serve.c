@@ -8,6 +8,7 @@
 #include "media_server/media/kind.h"
 
 #include <stdint.h>
+#include <string.h>
 
 static void serve_catalog_file(const router_match_t *match, void *req, void *res,
                                media_kind_t required_kind)
@@ -16,32 +17,40 @@ static void serve_catalog_file(const router_match_t *match, void *req, void *res
     uint32_t id = 0;
     const catalog_item_t *item;
     char abs_path[CATALOG_PATH_MAX * 2];
+    char rel_path[CATALOG_PATH_MAX];
     const char *ctype;
-
-    if (ctx == NULL || ctx->catalog == NULL || ctx->library_dir == NULL ||
-        ctx->library_dir[0] == '\0') {
-        http_reply_not_found(res);
-        return;
-    }
+    const char *library_dir;
 
     if (api_parse_id_param(match, &id) != 0) {
         http_reply_not_found(res);
         return;
     }
 
+    api_context_lock(ctx);
+    if (ctx == NULL || ctx->catalog == NULL || ctx->library_dir == NULL ||
+        ctx->library_dir[0] == '\0') {
+        api_context_unlock(ctx);
+        http_reply_not_found(res);
+        return;
+    }
+
     item = catalog_find_id(ctx->catalog, id);
     if (item == NULL || item->kind != required_kind) {
+        api_context_unlock(ctx);
         http_reply_not_found(res);
         return;
     }
 
-    if (media_resolve_path(ctx->library_dir, item->path, abs_path, sizeof(abs_path)) !=
-        0) {
+    memcpy(rel_path, item->path, sizeof(rel_path));
+    library_dir = ctx->library_dir;
+    api_context_unlock(ctx);
+
+    if (media_resolve_path(library_dir, rel_path, abs_path, sizeof(abs_path)) != 0) {
         http_reply_not_found(res);
         return;
     }
 
-    ctype = media_content_type(item->path);
+    ctype = media_content_type(rel_path);
     http_reply_file(req, res, abs_path, ctype);
 }
 

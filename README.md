@@ -69,6 +69,7 @@ mpv http://127.0.0.1:8080/stream/1
 ```
 --listen <url>         listen URL (default: http://127.0.0.1:8080)
 --library-dir <path>   media library root directory
+--catalog-db <path>    sqlite catalog snapshot (stable ids / fast boot)
 --log-level <name>     trace|debug|info|warn|error|fatal (default: info)
 --no-terminal-log      disable stderr logging
 --log-file <path>      also append logs to a file
@@ -83,6 +84,7 @@ Example with all sinks:
 ./media-server \
   --listen http://0.0.0.0:8080 \
   --library-dir /srv/music \
+  --catalog-db /var/lib/media-server/catalog.db \
   --log-level debug \
   --log-file /var/log/media-server.log \
   --log-db /var/lib/media-server/logs.db
@@ -108,8 +110,10 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/albums/:id`         | One album                                      |
 | GET    | `/api/albums/:id/tracks`  | Tracks on an album (paginated)                 |
 | GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
+| GET    | `/api/library/status`     | Scan status and catalog counts                 |
+| POST   | `/api/library/scan`       | Background rescan (`?force=1` to restart)      |
 | GET    | `/stream/:id`             | Stream an audio track; supports `Range` seeks  |
-| GET    | `/cover/:id`              | Serve an image item                            |
+| GET    | `/cover/:id`              | Serve an image item (use album `cover_id`)     |
 
 ### Pagination
 
@@ -135,9 +139,12 @@ Track/image objects carry metadata derived from the folder layout
  "artist":"Artist","album":"Album","title":"track01"}
 ```
 
-Catalog IDs are assigned during the scan starting at 1. Artist and album IDs
-are synthetic, assigned in discovery order, and stable only for the lifetime
-of the process.
+Catalog item IDs are assigned during the scan starting at 1 and are reused by
+relative path when `--catalog-db` is set (stable across restarts and rescans).
+Artist and album IDs are synthetic (discovery order) and not persisted.
+
+Album JSON includes `cover_id` (catalog image id, or `null`) matched by
+artist/album path meta, preferring `cover.*` / `folder.*` / `front.*`.
 
 Errors: unknown IDs, wrong-kind IDs (e.g. streaming an image), and unmatched
 paths return `404`; `/api/search` without `q` returns
@@ -146,13 +153,16 @@ undecodable) returns `400 {"error":"invalid_query"}`.
 
 ### Planned (return `501 Not Implemented`)
 
-Library management (`POST /api/library/scan`, `GET /api/library/status`) and
-playlists (`/api/playlists...`) are registered as stubs and respond with
+Playlists (`/api/playlists...`) are registered as stubs and respond with
 `501` until implemented.
 
 ## Library scanning
 
-The scan runs once at startup, walking `--library-dir` recursively:
+The scan walks `--library-dir` recursively at startup (or loads a prior
+snapshot from `--catalog-db` when present and the library root matches).
+`POST /api/library/scan` runs a background full rescan, reuses item IDs by
+path, rebuilds the browse index, and saves the snapshot when `--catalog-db`
+is set.
 
 - Files are classified by extension (case-insensitive); everything else is
   ignored.

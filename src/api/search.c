@@ -115,8 +115,9 @@ static int append_paged_albums(string_buf_t *sb, const browse_index_t *index,
 
 void handle_search(const router_match_t *match, void *req, void *res)
 {
-    catalog_t *catalog = api_context_catalog(match);
-    const browse_index_t *index = api_context_browse(match);
+    app_context_t *ctx = api_context_from_match(match);
+    catalog_t *catalog;
+    const browse_index_t *index;
     api_page_t page;
     char q[SEARCH_Q_MAX];
     string_buf_t sb;
@@ -145,6 +146,10 @@ void handle_search(const router_match_t *match, void *req, void *res)
         return;
     }
 
+    api_context_lock(ctx);
+    catalog = api_context_catalog_locked(ctx);
+    index = api_context_browse_locked(ctx);
+
     if (string_buf_append(&sb, "{\"q\":") != 0 ||
         string_buf_append_json_string(&sb, q) != 0 ||
         string_buf_append(&sb, ",\"tracks\":") != 0 ||
@@ -154,11 +159,13 @@ void handle_search(const router_match_t *match, void *req, void *res)
         string_buf_append(&sb, ",\"albums\":") != 0 ||
         append_paged_albums(&sb, index, q, &page) != 0 ||
         string_buf_append_char(&sb, '}') != 0) {
+        api_context_unlock(ctx);
         string_buf_free(&sb);
         http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
         return;
     }
 
+    api_context_unlock(ctx);
     http_reply_json(res, 200, string_buf_cstr(&sb));
     string_buf_free(&sb);
 }

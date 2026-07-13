@@ -60,6 +60,44 @@ void test_browse_groups_artist_and_album(void)
     TEST_ASSERT_EQUAL_STRING("Artist", album->artist);
     TEST_ASSERT_EQUAL_UINT(1, album->artist_id);
     TEST_ASSERT_EQUAL_UINT(2, album->track_count);
+    TEST_ASSERT_EQUAL_UINT(3, album->cover_id); /* cover.jpg is third catalog item */
+}
+
+void test_browse_cover_prefers_cover_over_folder(void)
+{
+    const browse_album_t *album;
+    const catalog_item_t *cover;
+
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "Artist/Album/t.mp3"));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE, "Artist/Album/folder.jpg"));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE, "Artist/Album/cover.jpg"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    cover = catalog_find_id(catalog, album->cover_id);
+    TEST_ASSERT_NOT_NULL(cover);
+    TEST_ASSERT_EQUAL_STRING("cover.jpg", cover->filename);
+}
+
+void test_browse_cover_absent_when_no_image(void)
+{
+    const browse_album_t *album;
+
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "Artist/Album/t.mp3"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(0, album->cover_id);
 }
 
 void test_browse_ignores_loose_files_without_album(void)
@@ -110,6 +148,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_browse_empty_catalog);
     RUN_TEST(test_browse_groups_artist_and_album);
+    RUN_TEST(test_browse_cover_prefers_cover_over_folder);
+    RUN_TEST(test_browse_cover_absent_when_no_image);
     RUN_TEST(test_browse_ignores_loose_files_without_album);
     RUN_TEST(test_browse_find_and_owns_item);
     return UNITY_END();
