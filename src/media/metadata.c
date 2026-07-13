@@ -3,6 +3,7 @@
 #include "media_server/media/path_meta.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -144,6 +145,7 @@ int media_metadata_from_path(const char *rel_path, media_metadata_t *out)
     return 0;
 }
 
+#ifdef MEDIA_SERVER_TAGLIB_PROPERTIES
 static int copy_property(TagLib_File *file, const char *name, char *dst,
                          size_t dst_size)
 {
@@ -185,11 +187,22 @@ static uint32_t number_property(TagLib_File *file, const char *name)
     }
     return number;
 }
+#else
+static void copy_tag_string(char *dst, size_t dst_size, const char *value)
+{
+    if (value != NULL && value[0] != '\0') {
+        copy_trimmed(dst, dst_size, value, strlen(value));
+    }
+}
+#endif
 
 int media_metadata_read(const char *abs_path, const char *rel_path,
                         media_metadata_t *out)
 {
     TagLib_File *file;
+#ifndef MEDIA_SERVER_TAGLIB_PROPERTIES
+    TagLib_Tag *tag;
+#endif
 
     if (abs_path == NULL || media_metadata_from_path(rel_path, out) != 0) {
         return -1;
@@ -203,6 +216,7 @@ int media_metadata_read(const char *abs_path, const char *rel_path,
         return 0;
     }
 
+#ifdef MEDIA_SERVER_TAGLIB_PROPERTIES
     (void)copy_property(file, "TITLE", out->title, sizeof(out->title));
     (void)copy_property(file, "ARTIST", out->artist, sizeof(out->artist));
     (void)copy_property(file, "ALBUM", out->album, sizeof(out->album));
@@ -218,6 +232,28 @@ int media_metadata_read(const char *abs_path, const char *rel_path,
             out->disc_number = value;
         }
     }
+#else
+    tag = taglib_file_tag(file);
+    if (tag != NULL) {
+        unsigned int year;
+        unsigned int track;
+
+        copy_tag_string(out->title, sizeof(out->title), taglib_tag_title(tag));
+        copy_tag_string(out->artist, sizeof(out->artist), taglib_tag_artist(tag));
+        copy_tag_string(out->album, sizeof(out->album), taglib_tag_album(tag));
+        copy_tag_string(out->genre, sizeof(out->genre), taglib_tag_genre(tag));
+
+        year = taglib_tag_year(tag);
+        if (year != 0) {
+            (void)snprintf(out->release_date, sizeof(out->release_date), "%u", year);
+        }
+        track = taglib_tag_track(tag);
+        if (track != 0) {
+            out->track_number = track;
+        }
+        taglib_tag_free_strings();
+    }
+#endif
     taglib_file_free(file);
     return 0;
 }

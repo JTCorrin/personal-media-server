@@ -90,6 +90,7 @@ void test_metadata_embedded_tags_override_path_fallback(void)
     file = taglib_file_new(path);
     TEST_ASSERT_NOT_NULL(file);
     TEST_ASSERT_TRUE(taglib_file_is_valid(file));
+#ifdef MEDIA_SERVER_TAGLIB_PROPERTIES
     taglib_property_set(file, "TITLE", "Tagged title");
     taglib_property_set(file, "ARTIST", "Tagged artist");
     taglib_property_set(file, "ALBUM", "Tagged album");
@@ -97,6 +98,18 @@ void test_metadata_embedded_tags_override_path_fallback(void)
     taglib_property_set(file, "GENRE", "Jazz");
     taglib_property_set(file, "TRACKNUMBER", "7/12");
     taglib_property_set(file, "DISCNUMBER", "2/2");
+#else
+    {
+        TagLib_Tag *tag = taglib_file_tag(file);
+        TEST_ASSERT_NOT_NULL(tag);
+        taglib_tag_set_title(tag, "Tagged title");
+        taglib_tag_set_artist(tag, "Tagged artist");
+        taglib_tag_set_album(tag, "Tagged album");
+        taglib_tag_set_year(tag, 2024);
+        taglib_tag_set_genre(tag, "Jazz");
+        taglib_tag_set_track(tag, 7);
+    }
+#endif
     TEST_ASSERT_TRUE(taglib_file_save(file));
     taglib_file_free(file);
 
@@ -106,10 +119,18 @@ void test_metadata_embedded_tags_override_path_fallback(void)
     TEST_ASSERT_EQUAL_STRING("Tagged title", metadata.title);
     TEST_ASSERT_EQUAL_STRING("Tagged artist", metadata.artist);
     TEST_ASSERT_EQUAL_STRING("Tagged album", metadata.album);
+#ifdef MEDIA_SERVER_TAGLIB_PROPERTIES
     TEST_ASSERT_EQUAL_STRING("2024-06-07", metadata.release_date);
+#else
+    TEST_ASSERT_EQUAL_STRING("2024", metadata.release_date);
+#endif
     TEST_ASSERT_EQUAL_STRING("Jazz", metadata.genre);
     TEST_ASSERT_EQUAL_UINT32(7, metadata.track_number);
+#ifdef MEDIA_SERVER_TAGLIB_PROPERTIES
     TEST_ASSERT_EQUAL_UINT32(2, metadata.disc_number);
+#else
+    TEST_ASSERT_EQUAL_UINT32(0, metadata.disc_number);
+#endif
 
     TEST_ASSERT_EQUAL_INT(0, unlink(path));
     TEST_ASSERT_EQUAL_INT(0, rmdir(dir));

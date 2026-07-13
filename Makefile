@@ -16,6 +16,12 @@ TAGLIB_LIBS := $(shell $(PKG_CONFIG) --libs taglib_c)
 CFLAGS += $(TAGLIB_CFLAGS)
 LDLIBS += $(TAGLIB_LIBS)
 
+# The generic property API was added to the C bindings in TagLib 2.0.
+# Keep builds compatible with Debian 12's TagLib 1.x runtime.
+ifeq ($(shell $(PKG_CONFIG) --atleast-version=2.0 taglib_c && echo yes),yes)
+CFLAGS += -DMEDIA_SERVER_TAGLIB_PROPERTIES=1
+endif
+
 ifeq ($(DEBUG),1)
 CFLAGS += -g -O0
 endif
