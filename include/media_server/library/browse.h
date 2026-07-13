@@ -33,6 +33,13 @@ typedef struct browse_album {
     uint32_t artist_id; /* 0 if artist was empty / not indexed */
     uint32_t cover_id;  /* catalog image id; 0 if none */
     size_t track_count;
+    char release_date[CATALOG_DATE_MAX]; /* "" when absent or inconsistent */
+    char genre[CATALOG_META_MAX];        /* "" when absent or inconsistent */
+    bool release_date_mixed;
+    bool genre_mixed;
+    char path_name[CATALOG_META_MAX];   /* cover matching after tags/overrides */
+    char path_artist[CATALOG_META_MAX];
+    bool path_group_mixed;
 } browse_album_t;
 
 /* Build from catalog. Returns NULL on OOM or NULL catalog. */

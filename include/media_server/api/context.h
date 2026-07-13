@@ -28,6 +28,7 @@ typedef struct app_context {
 
     pthread_mutex_t mu;
     bool scanning;
+    bool metadata_mutating;
     bool worker_joinable;
     pthread_t worker;
     atomic_bool cancel_scan;

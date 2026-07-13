@@ -37,6 +37,18 @@ void library_runtime_shutdown(app_context_t *ctx);
  */
 int library_scan_request(app_context_t *ctx, bool force);
 
+/*
+ * Copy-on-write effective metadata updates.
+ * Returns 0 on success, 1 when scan/edit busy, 2 when resource not found,
+ * and -1 on allocation/persistence failure.
+ */
+int library_metadata_patch_track(app_context_t *ctx, uint32_t track_id,
+                                 const metadata_patch_t *patch,
+                                 catalog_item_t *updated);
+int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
+                                 const metadata_patch_t *patch,
+                                 size_t *updated_track_count);
+
 void library_status_get(app_context_t *ctx, library_status_t *out);
 
 #endif /* MEDIA_SERVER_LIBRARY_RUNTIME_H */

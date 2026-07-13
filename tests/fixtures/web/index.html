@@ -68,6 +68,7 @@
       box-shadow: inset 0 -2px 0 #c07830;
     }
     audio { width: 100%; height: 2.25rem; }
+    dialog::backdrop { background: rgba(4, 8, 6, 0.78); backdrop-filter: blur(3px); }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-thumb { background: #334840; border-radius: 999px; }
   </style>
@@ -197,6 +198,24 @@
     </section>
   </main>
 
+  <dialog id="metadata-dialog"
+    class="w-[min(34rem,calc(100vw-2rem))] border border-white/10 bg-ink-900 p-0 text-mist shadow-glow">
+    <form id="metadata-form" class="space-y-5 p-5">
+      <div>
+        <h2 id="metadata-dialog-title" class="font-display text-xl text-white">Edit metadata</h2>
+        <p class="mt-1 text-xs text-mute">Change selected fields or check Reset to restore the scanned value.</p>
+      </div>
+      <div id="metadata-fields" class="space-y-4"></div>
+      <p id="metadata-error" class="hidden text-sm text-red-300"></p>
+      <div class="flex justify-end gap-2 border-t border-white/10 pt-4">
+        <button type="button" id="metadata-cancel"
+          class="border border-white/15 px-4 py-2 text-sm text-mute hover:text-white">Cancel</button>
+        <button type="submit"
+          class="bg-copper-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-copper-400">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Player -->
   <footer class="fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-ink-950/95 shadow-glow backdrop-blur-md">
     <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:px-6">
@@ -283,6 +302,8 @@
           </button>
           <button type="button" data-action="toggle-fav" data-track-id="${t.id}"
             class="px-1 text-lg ${fav ? "text-copper-400" : "text-mute"} hover:text-copper-300">${fav ? "♥" : "♡"}</button>
+          <button type="button" data-action="edit-track" data-track-id="${t.id}"
+            class="px-1 text-xs text-mute hover:text-copper-300">Edit</button>
         </li>`;
     }
 
@@ -301,16 +322,18 @@
       const cover = a.cover_id ? `style="background-image:url('${coverUrl(a.cover_id)}')"` : "";
       const coverId = a.cover_id != null ? a.cover_id : "";
       return `
-        <li class="row-hover">
+        <li class="row-hover flex items-center gap-2">
           <button type="button" data-action="open-album" data-album-id="${a.id}"
             data-artist-id="${a.artist_id || ""}" data-cover-id="${coverId}"
-            class="flex w-full items-center gap-3 px-1 py-2.5 text-left">
+            class="flex min-w-0 flex-1 items-center gap-3 px-1 py-2.5 text-left">
             <span class="h-10 w-10 shrink-0 bg-ink-700 bg-cover bg-center ring-1 ring-white/10" ${cover}></span>
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm text-white">${escapeHtml(a.name)}</span>
               <span class="block truncate text-xs text-mute">${escapeHtml(a.artist || "—")} · ${a.track_count} tracks</span>
             </span>
           </button>
+          <button type="button" data-action="edit-album" data-album-id="${a.id}"
+            class="shrink-0 px-1 text-xs text-mute hover:text-copper-300">Edit</button>
         </li>`;
     }
 
@@ -612,6 +635,118 @@
       }
     }
 
+    const TRACK_EDIT_FIELDS = [
+      ["title", "Title", "text"],
+      ["artist", "Artist", "text"],
+      ["album", "Album", "text"],
+      ["release_date", "Release date", "text"],
+      ["genre", "Genre", "text"],
+      ["track_number", "Track number", "number"],
+      ["disc_number", "Disc number", "number"],
+    ];
+    const ALBUM_EDIT_FIELDS = [
+      ["name", "Album name", "text"],
+      ["artist", "Album artist", "text"],
+      ["release_date", "Release date", "text"],
+      ["genre", "Genre", "text"],
+    ];
+
+    function openMetadataDialog(resource, id, current) {
+      const dialog = $("metadata-dialog");
+      const fields = resource === "track" ? TRACK_EDIT_FIELDS : ALBUM_EDIT_FIELDS;
+      dialog.dataset.resource = resource;
+      dialog.dataset.resourceId = String(id);
+      $("metadata-dialog-title").textContent =
+        resource === "track" ? "Edit track metadata" : "Edit album metadata";
+      $("metadata-error").classList.add("hidden");
+      $("metadata-error").textContent = "";
+      $("metadata-fields").innerHTML = fields.map(([key, label, type]) => {
+        const value = current[key] == null ? "" : String(current[key]);
+        const dateHint = key === "release_date" ? " placeholder=\"YYYY, YYYY-MM, or YYYY-MM-DD\"" : "";
+        const numberRules = type === "number" ? " min=\"1\" max=\"65535\"" : "";
+        return `
+          <div data-metadata-field="${key}" data-original="${escapeHtml(value)}">
+            <div class="mb-1 flex items-center justify-between gap-3">
+              <label for="metadata-${key}" class="text-xs uppercase tracking-wider text-mute">${escapeHtml(label)}</label>
+              <label class="flex items-center gap-1.5 text-xs text-mute">
+                <input type="checkbox" data-reset-field="${key}" class="accent-copper-500" />
+                Reset
+              </label>
+            </div>
+            <input id="metadata-${key}" data-value-field="${key}" type="${type}" value="${escapeHtml(value)}"${dateHint}${numberRules}
+              class="w-full border-0 border-b border-white/20 bg-transparent px-0 py-2 text-white outline-none focus:border-copper-400 disabled:opacity-40" />
+          </div>`;
+      }).join("");
+      $("metadata-fields").querySelectorAll("[data-reset-field]").forEach((box) => {
+        box.addEventListener("change", () => {
+          const input = $(`metadata-${box.dataset.resetField}`);
+          input.disabled = box.checked;
+        });
+      });
+      dialog.showModal();
+    }
+
+    async function editTrack(id) {
+      const track = state.trackIndex.get(id) || await api(`/api/tracks/${id}`);
+      state.trackIndex.set(id, track);
+      openMetadataDialog("track", id, track);
+    }
+
+    async function editAlbum(id) {
+      const album = state.albums.items.find((a) => a.id === id) ||
+        await api(`/api/albums/${id}`);
+      openMetadataDialog("album", id, album);
+    }
+
+    async function submitMetadataEdit(e) {
+      e.preventDefault();
+      const dialog = $("metadata-dialog");
+      const resource = dialog.dataset.resource;
+      const id = Number(dialog.dataset.resourceId);
+      const body = {};
+      $("metadata-fields").querySelectorAll("[data-metadata-field]").forEach((row) => {
+        const key = row.dataset.metadataField;
+        const reset = row.querySelector("[data-reset-field]").checked;
+        const input = row.querySelector("[data-value-field]");
+        if (reset) {
+          body[key] = null;
+        } else if (input.value !== row.dataset.original) {
+          body[key] = input.type === "number" ? Number(input.value) : input.value;
+        }
+      });
+      if (Object.keys(body).length === 0) {
+        dialog.close();
+        return;
+      }
+
+      const error = $("metadata-error");
+      error.classList.add("hidden");
+      try {
+        if (resource === "track") {
+          const updated = await api(`/api/tracks/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+          });
+          state.trackIndex.set(id, updated);
+          const pos = state.tracks.items.findIndex((t) => t.id === id);
+          if (pos >= 0) state.tracks.items[pos] = updated;
+          renderTrackList();
+          toast("track metadata updated");
+        } else {
+          const result = await api(`/api/albums/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+          });
+          await Promise.all([loadArtists(true), loadAlbums(true), loadAllTracks(true)]);
+          toast(`${result.updated_track_count} tracks updated`);
+        }
+        dialog.close();
+      } catch (err) {
+        error.textContent = err.message || String(err);
+        error.classList.remove("hidden");
+      }
+    }
+
     /* Single delegated click handler — avoids fragile JSON-in-attributes. */
     document.body.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
@@ -627,6 +762,9 @@
           case "toggle-fav":
             await toggleFav(trackId);
             break;
+          case "edit-track":
+            await editTrack(trackId);
+            break;
           case "open-artist": {
             const id = Number(btn.dataset.artistId);
             setTab("browse");
@@ -641,6 +779,9 @@
             await openAlbum(id, coverId, { artistId });
             break;
           }
+          case "edit-album":
+            await editAlbum(Number(btn.dataset.albumId));
+            break;
           case "open-playlist":
             await openPlaylist(Number(btn.dataset.playlistId));
             break;
@@ -657,6 +798,8 @@
     });
 
     /* Wire UI */
+    $("metadata-form").addEventListener("submit", submitMetadataEdit);
+    $("metadata-cancel").addEventListener("click", () => $("metadata-dialog").close());
     document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
     $("search-form").addEventListener("submit", (e) => runSearch(e).catch((err) => toast(err.message)));
     $("btn-artists-more").addEventListener("click", () => loadArtists().catch((e) => toast(e.message)));

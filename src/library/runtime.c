@@ -7,6 +7,7 @@
 #include "media_server/media/kind.h"
 #include "media_server/util/log.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -21,6 +22,7 @@ int library_runtime_init(app_context_t *ctx)
     }
 
     ctx->scanning = false;
+    ctx->metadata_mutating = false;
     ctx->worker_joinable = false;
     atomic_init(&ctx->cancel_scan, false);
     ctx->last_scan_unix = 0;
@@ -53,6 +55,7 @@ void library_runtime_shutdown(app_context_t *ctx)
     pthread_mutex_lock(&ctx->mu);
     ctx->worker_joinable = false;
     ctx->scanning = false;
+    ctx->metadata_mutating = false;
     pthread_mutex_unlock(&ctx->mu);
     pthread_mutex_destroy(&ctx->mu);
 }
@@ -130,6 +133,17 @@ static void *scan_worker(void *arg)
         return NULL;
     }
 
+    if (catalog_db_path != NULL && catalog_db_path[0] != '\0' &&
+        catalog_store_apply_overrides(catalog_db_path, new_catalog) != 0) {
+        catalog_destroy(new_catalog);
+        pthread_mutex_lock(&ctx->mu);
+        ctx->scanning = false;
+        ctx->last_scan_ok = false;
+        set_error(ctx, "override load failed");
+        pthread_mutex_unlock(&ctx->mu);
+        return NULL;
+    }
+
     new_browse = browse_index_build(new_catalog);
     if (new_browse == NULL) {
         catalog_destroy(new_catalog);
@@ -189,6 +203,11 @@ int library_scan_request(app_context_t *ctx, bool force)
 
     pthread_mutex_lock(&ctx->mu);
 
+    if (ctx->metadata_mutating) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 1;
+    }
+
     if (ctx->scanning) {
         if (!force) {
             pthread_mutex_unlock(&ctx->mu);
@@ -229,6 +248,202 @@ int library_scan_request(app_context_t *ctx, bool force)
     ctx->worker_joinable = true;
     pthread_mutex_unlock(&ctx->mu);
     return restarted ? 2 : 0;
+}
+
+static void metadata_mutation_finish(app_context_t *ctx, catalog_t *new_catalog,
+                                     browse_index_t *new_browse)
+{
+    catalog_t *old_catalog;
+    browse_index_t *old_browse;
+
+    pthread_mutex_lock(&ctx->mu);
+    old_catalog = ctx->catalog;
+    old_browse = ctx->browse;
+    ctx->catalog = new_catalog;
+    ctx->browse = new_browse;
+    ctx->metadata_mutating = false;
+    pthread_mutex_unlock(&ctx->mu);
+
+    catalog_destroy(old_catalog);
+    browse_index_destroy(old_browse);
+}
+
+static void metadata_mutation_abort(app_context_t *ctx)
+{
+    pthread_mutex_lock(&ctx->mu);
+    ctx->metadata_mutating = false;
+    pthread_mutex_unlock(&ctx->mu);
+}
+
+static int metadata_mutation_begin(app_context_t *ctx, catalog_t **copy)
+{
+    if (ctx == NULL || copy == NULL) {
+        return -1;
+    }
+    pthread_mutex_lock(&ctx->mu);
+    if (ctx->scanning || ctx->metadata_mutating) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 1;
+    }
+    ctx->metadata_mutating = true;
+    *copy = catalog_clone(ctx->catalog);
+    pthread_mutex_unlock(&ctx->mu);
+    if (*copy == NULL) {
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+    return 0;
+}
+
+int library_metadata_patch_track(app_context_t *ctx, uint32_t track_id,
+                                 const metadata_patch_t *patch,
+                                 catalog_item_t *updated)
+{
+    catalog_t *copy = NULL;
+    browse_index_t *browse = NULL;
+    const catalog_item_t *item;
+    const char *paths[1];
+    int rc;
+
+    if (patch == NULL) {
+        return -1;
+    }
+    rc = metadata_mutation_begin(ctx, &copy);
+    if (rc != 0) {
+        return rc;
+    }
+    item = catalog_find_id(copy, track_id);
+    if (item == NULL || item->kind != MEDIA_KIND_AUDIO) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return 2;
+    }
+    paths[0] = item->path;
+    if (catalog_apply_metadata_patch(copy, track_id, patch) != 0) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+    browse = browse_index_build(copy);
+    if (browse == NULL) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+    if (ctx->catalog_db_path != NULL && ctx->catalog_db_path[0] != '\0' &&
+        catalog_store_patch_overrides(ctx->catalog_db_path, paths, 1, patch) != 0) {
+        browse_index_destroy(browse);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+    item = catalog_find_id(copy, track_id);
+    if (updated != NULL) {
+        *updated = *item;
+    }
+    metadata_mutation_finish(ctx, copy, browse);
+    return 0;
+}
+
+int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
+                                 const metadata_patch_t *patch,
+                                 size_t *updated_track_count)
+{
+    catalog_t *copy = NULL;
+    browse_index_t *browse = NULL;
+    browse_album_t album;
+    const char **paths = NULL;
+    uint32_t *ids = NULL;
+    size_t count = 0;
+
+    if (ctx == NULL || patch == NULL || updated_track_count == NULL) {
+        return -1;
+    }
+    *updated_track_count = 0;
+
+    pthread_mutex_lock(&ctx->mu);
+    if (ctx->scanning || ctx->metadata_mutating) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 1;
+    }
+    {
+        const browse_album_t *found = browse_album_find_id(ctx->browse, album_id);
+        if (found == NULL) {
+            pthread_mutex_unlock(&ctx->mu);
+            return 2;
+        }
+        album = *found;
+    }
+    ctx->metadata_mutating = true;
+    copy = catalog_clone(ctx->catalog);
+    pthread_mutex_unlock(&ctx->mu);
+    if (copy == NULL) {
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+
+    for (size_t i = 0; i < catalog_count(copy); i++) {
+        const catalog_item_t *item = catalog_get(copy, i);
+        if (browse_album_owns_item(&album, item)) {
+            count++;
+        }
+    }
+    if (count == 0) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return 2;
+    }
+    paths = calloc(count, sizeof(*paths));
+    ids = calloc(count, sizeof(*ids));
+    if (paths == NULL || ids == NULL) {
+        free(paths);
+        free(ids);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+    count = 0;
+    for (size_t i = 0; i < catalog_count(copy); i++) {
+        const catalog_item_t *item = catalog_get(copy, i);
+        if (!browse_album_owns_item(&album, item)) {
+            continue;
+        }
+        paths[count] = item->path;
+        ids[count] = item->id;
+        count++;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (catalog_apply_metadata_patch(copy, ids[i], patch) != 0) {
+            free(paths);
+            free(ids);
+            catalog_destroy(copy);
+            metadata_mutation_abort(ctx);
+            return -1;
+        }
+    }
+    browse = browse_index_build(copy);
+    if (browse == NULL) {
+        free(paths);
+        free(ids);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+    if (ctx->catalog_db_path != NULL && ctx->catalog_db_path[0] != '\0' &&
+        catalog_store_patch_overrides(ctx->catalog_db_path, paths, count, patch) != 0) {
+        free(paths);
+        free(ids);
+        browse_index_destroy(browse);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
+    }
+
+    free(paths);
+    free(ids);
+    *updated_track_count = count;
+    metadata_mutation_finish(ctx, copy, browse);
+    return 0;
 }
 
 void library_status_get(app_context_t *ctx, library_status_t *out)

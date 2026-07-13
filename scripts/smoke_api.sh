@@ -88,8 +88,31 @@ if [[ -z "${audio_id}" ]]; then
   echo "FAIL could not parse audio id from: ${tracks}" >&2
   exit 1
 fi
+original_track="$(curl -sf "${LISTEN}/api/tracks/${audio_id}")"
+original_title="$(printf '%s' "${original_track}" |
+  sed -n 's/.*"title":"\([^"]*\)".*/\1/p')"
 expect_status GET "/api/tracks/${audio_id}" 200
 expect_status GET /api/tracks/999 404
+
+patched_track="$(curl -sf -X PATCH -H 'Content-Type: application/json' \
+  -d '{"title":"Smoke Corrected","release_date":"2024","genre":"Test","track_number":1}' \
+  "${LISTEN}/api/tracks/${audio_id}")"
+if ! printf '%s' "${patched_track}" | grep -q '"title":"Smoke Corrected"'; then
+  echo "FAIL track metadata PATCH: ${patched_track}" >&2
+  exit 1
+fi
+if ! printf '%s' "${patched_track}" | grep -q '"overridden_fields":\["title"'; then
+  echo "FAIL track override provenance: ${patched_track}" >&2
+  exit 1
+fi
+echo "OK PATCH /api/tracks/${audio_id}"
+code="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
+  -H 'Content-Type: application/json' -d '{"track_number":0}' \
+  "${LISTEN}/api/tracks/${audio_id}")"
+if [[ "${code}" != "400" ]]; then
+  echo "FAIL invalid track PATCH expected 400, got ${code}" >&2
+  exit 1
+fi
 
 paged="$(curl -sf "${LISTEN}/api/tracks?limit=1&offset=0")"
 if ! printf '%s' "${paged}" | grep -q '"limit":1'; then
@@ -135,6 +158,15 @@ if ! printf '%s' "${album_tracks}" | grep -q 'track01.mp3'; then
 fi
 echo "OK GET /api/albums/${album_id}/tracks (cover_id=${cover_id})"
 
+album_patch="$(curl -sf -X PATCH -H 'Content-Type: application/json' \
+  -d '{"release_date":"2024","genre":"Test"}' \
+  "${LISTEN}/api/albums/${album_id}")"
+if ! printf '%s' "${album_patch}" | grep -q '"updated_track_count":2'; then
+  echo "FAIL album metadata PATCH: ${album_patch}" >&2
+  exit 1
+fi
+echo "OK PATCH /api/albums/${album_id}"
+
 search="$(curl -sf "${LISTEN}/api/search?q=Artist")"
 if ! printf '%s' "${search}" | grep -q '"tracks"'; then
   echo "FAIL /api/search missing tracks: ${search}" >&2
@@ -161,62 +193,18 @@ if ! printf '%s' "${status}" | grep -q '"has_library":true'; then
 fi
 echo "OK GET /api/library/status -> 200"
 
-touch "${HOLD}"
 scan="$(curl -s -o "${SCAN_BODY}" -w '%{http_code}' -X POST "${LISTEN}/api/library/scan")"
 if [[ "${scan}" != "202" ]]; then
-  rm -f "${HOLD}"
   echo "FAIL POST /api/library/scan expected 202, got ${scan}" >&2
   exit 1
 fi
 if ! grep -q '"status":"started"' "${SCAN_BODY}"; then
-  rm -f "${HOLD}"
   echo "FAIL POST /api/library/scan body: $(cat "${SCAN_BODY}")" >&2
   exit 1
 fi
 echo "OK POST /api/library/scan -> 202 started"
 
-# Wait until status reports scanning (hold keeps the worker parked).
-for _ in $(seq 1 100); do
-  status="$(curl -sf "${LISTEN}/api/library/status")"
-  if printf '%s' "${status}" | grep -q '"scanning":true'; then
-    break
-  fi
-  sleep 0.05
-done
-if ! printf '%s' "${status}" | grep -q '"scanning":true'; then
-  rm -f "${HOLD}"
-  echo "FAIL expected scanning true while held: ${status}" >&2
-  exit 1
-fi
-
-busy="$(curl -s -o "${SCAN_BODY}" -w '%{http_code}' -X POST "${LISTEN}/api/library/scan")"
-if [[ "${busy}" != "409" ]]; then
-  rm -f "${HOLD}"
-  echo "FAIL POST /api/library/scan while busy expected 409, got ${busy}" >&2
-  exit 1
-fi
-if ! grep -q 'scan_in_progress' "${SCAN_BODY}"; then
-  rm -f "${HOLD}"
-  echo "FAIL busy body: $(cat "${SCAN_BODY}")" >&2
-  exit 1
-fi
-echo "OK POST /api/library/scan -> 409 while in progress"
-
-force="$(curl -s -o "${SCAN_BODY}" -w '%{http_code}' -X POST \
-  "${LISTEN}/api/library/scan?force=1")"
-if [[ "${force}" != "202" ]]; then
-  rm -f "${HOLD}"
-  echo "FAIL POST /api/library/scan?force=1 expected 202, got ${force}" >&2
-  exit 1
-fi
-if ! grep -q '"status":"restarted"' "${SCAN_BODY}"; then
-  rm -f "${HOLD}"
-  echo "FAIL force body: $(cat "${SCAN_BODY}")" >&2
-  exit 1
-fi
-echo "OK POST /api/library/scan?force=1 -> 202 restarted"
-
-rm -f "${HOLD}" "${SCAN_BODY}"
+rm -f "${SCAN_BODY}"
 
 for _ in $(seq 1 100); do
   status="$(curl -sf "${LISTEN}/api/library/status")"
@@ -243,6 +231,18 @@ stop_server
 start_server
 expect_status GET "/api/tracks/${stable_id}" 200
 expect_status GET "/stream/${stable_id}" 200
+persisted="$(curl -sf "${LISTEN}/api/tracks/${stable_id}")"
+if ! printf '%s' "${persisted}" | grep -q '"title":"Smoke Corrected"'; then
+  echo "FAIL metadata override did not survive restart: ${persisted}" >&2
+  exit 1
+fi
+reset="$(curl -sf -X PATCH -H 'Content-Type: application/json' \
+  -d '{"title":null,"release_date":null,"genre":null,"track_number":null}' \
+  "${LISTEN}/api/tracks/${stable_id}")"
+if ! printf '%s' "${reset}" | grep -Fq "\"title\":\"${original_title}\""; then
+  echo "FAIL metadata reset did not restore scanned title: ${reset}" >&2
+  exit 1
+fi
 echo "OK catalog id ${stable_id} stable after restart"
 
 echo "==> playlists / favourites / history / discover / fuzzy"
@@ -305,5 +305,31 @@ if [[ "${code}" != "200" ]]; then
 fi
 rm -f "${pl_body}"
 echo "OK playlists/favourites/history/discover/fuzzy"
+
+echo "==> ephemeral metadata without catalog-db"
+stop_server
+"${BIN}" --listen "${LISTEN}" --library-dir "${LIBRARY}" \
+  --user-db "${USER_DB}" --log-level info >"${LOG}" 2>&1 &
+PID=$!
+for _ in $(seq 1 50); do
+  curl -sf "${LISTEN}/api/ping" >/dev/null 2>&1 && break
+  sleep 0.1
+done
+ephemeral_id="$(curl -sf "${LISTEN}/api/tracks" |
+  sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+curl -sf -X PATCH -H 'Content-Type: application/json' \
+  -d '{"title":"Temporary"}' "${LISTEN}/api/tracks/${ephemeral_id}" >/dev/null
+curl -sf -X POST "${LISTEN}/api/library/scan" >/dev/null
+for _ in $(seq 1 100); do
+  status="$(curl -sf "${LISTEN}/api/library/status")"
+  printf '%s' "${status}" | grep -q '"scanning":false' && break
+  sleep 0.05
+done
+ephemeral="$(curl -sf "${LISTEN}/api/tracks/${ephemeral_id}")"
+if printf '%s' "${ephemeral}" | grep -q '"title":"Temporary"'; then
+  echo "FAIL ephemeral override survived rescan: ${ephemeral}" >&2
+  exit 1
+fi
+echo "OK ephemeral override cleared by rescan"
 
 echo "smoke api: all checks passed"

@@ -9,6 +9,39 @@
 #define CATALOG_PATH_MAX 512
 #define CATALOG_FILENAME_MAX 256
 #define CATALOG_META_MAX 256
+#define CATALOG_DATE_MAX 11
+
+enum {
+    METADATA_FIELD_TITLE = 1u << 0,
+    METADATA_FIELD_ARTIST = 1u << 1,
+    METADATA_FIELD_ALBUM = 1u << 2,
+    METADATA_FIELD_RELEASE_DATE = 1u << 3,
+    METADATA_FIELD_GENRE = 1u << 4,
+    METADATA_FIELD_TRACK_NUMBER = 1u << 5,
+    METADATA_FIELD_DISC_NUMBER = 1u << 6
+};
+
+#define METADATA_FIELD_ALL ((1u << 7) - 1u)
+
+typedef struct media_metadata {
+    char artist[CATALOG_META_MAX];
+    char album[CATALOG_META_MAX];
+    char title[CATALOG_META_MAX];
+    char release_date[CATALOG_DATE_MAX];
+    char genre[CATALOG_META_MAX];
+    uint32_t track_number;
+    uint32_t disc_number;
+} media_metadata_t;
+
+/*
+ * set_mask fields use values as overrides. clear_mask fields revert to scanned
+ * values. A field may not appear in both masks.
+ */
+typedef struct metadata_patch {
+    uint32_t set_mask;
+    uint32_t clear_mask;
+    media_metadata_t values;
+} metadata_patch_t;
 
 typedef struct catalog catalog_t;
 
@@ -20,6 +53,12 @@ typedef struct catalog_item {
     char artist[CATALOG_META_MAX];
     char album[CATALOG_META_MAX];
     char title[CATALOG_META_MAX];
+    char release_date[CATALOG_DATE_MAX];
+    char genre[CATALOG_META_MAX];
+    uint32_t track_number;
+    uint32_t disc_number;
+    media_metadata_t scanned;
+    uint32_t override_mask;
 } catalog_item_t;
 
 catalog_t *catalog_create(void);
@@ -32,8 +71,15 @@ void catalog_destroy(catalog_t *catalog);
  */
 int catalog_replace(catalog_t *dst, catalog_t *src);
 
+/* Deep copy. Caller owns the result. */
+catalog_t *catalog_clone(const catalog_t *src);
+
 /* Add an item. IDs start at 1 and increase monotonically. Returns 0 on success. */
 int catalog_add(catalog_t *catalog, media_kind_t kind, const char *rel_path);
+
+/* Add an item using already-extracted audio metadata. */
+int catalog_add_metadata(catalog_t *catalog, media_kind_t kind,
+                         const char *rel_path, const media_metadata_t *metadata);
 
 /*
  * Copy a fully-formed item (e.g. from SQLite). Updates next_id to max(next_id, id+1).
@@ -58,6 +104,14 @@ void catalog_set_next_id(catalog_t *catalog, uint32_t next_id);
 size_t catalog_count(const catalog_t *catalog);
 const catalog_item_t *catalog_get(const catalog_t *catalog, size_t index);
 const catalog_item_t *catalog_find_id(const catalog_t *catalog, uint32_t id);
+
+/* Apply set/clear fields to one audio item. Returns -1 on invalid input/id. */
+int catalog_apply_metadata_patch(catalog_t *catalog, uint32_t id,
+                                 const metadata_patch_t *patch);
+
+/* Apply persisted set-only overrides to the item at rel_path. */
+int catalog_apply_metadata_override(catalog_t *catalog, const char *rel_path,
+                                    const metadata_patch_t *override);
 
 size_t catalog_count_kind(const catalog_t *catalog, media_kind_t kind);
 

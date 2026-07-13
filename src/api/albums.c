@@ -3,11 +3,13 @@
 #include "media_server/api/browse_json.h"
 #include "media_server/api/catalog_json.h"
 #include "media_server/api/context.h"
+#include "media_server/api/metadata_patch.h"
 #include "media_server/api/page_json.h"
 #include "media_server/api/params.h"
 #include "media_server/http/server.h"
 #include "media_server/library/browse.h"
 #include "media_server/library/catalog.h"
+#include "media_server/library/runtime.h"
 #include "media_server/util/string_buf.h"
 
 #include <stdint.h>
@@ -184,4 +186,47 @@ fail:
     api_context_unlock(ctx);
     string_buf_free(&sb);
     http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
+}
+
+void handle_album_patch(const router_match_t *match, void *req, void *res)
+{
+    app_context_t *ctx = api_context_from_match(match);
+    metadata_patch_t patch;
+    uint32_t id;
+    size_t updated = 0;
+    string_buf_t sb;
+    int rc;
+
+    if (api_parse_id_param(match, &id) != 0) {
+        http_reply_not_found(res);
+        return;
+    }
+    if (api_parse_album_metadata_patch(req, &patch) != 0) {
+        http_reply_json(res, 400, "{\"error\":\"invalid_body\"}");
+        return;
+    }
+    rc = library_metadata_patch_album(ctx, id, &patch, &updated);
+    if (rc == 1) {
+        http_reply_json(res, 409, "{\"error\":\"library_busy\"}");
+        return;
+    }
+    if (rc == 2) {
+        http_reply_not_found(res);
+        return;
+    }
+    if (rc != 0) {
+        http_reply_json(res, 500, "{\"error\":\"update_failed\"}");
+        return;
+    }
+    if (string_buf_init(&sb, 64) != 0) {
+        http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
+        return;
+    }
+    if (string_buf_append_fmt(&sb, "{\"updated_track_count\":%zu}", updated) != 0) {
+        string_buf_free(&sb);
+        http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
+        return;
+    }
+    http_reply_json(res, 200, string_buf_cstr(&sb));
+    string_buf_free(&sb);
 }

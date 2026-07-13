@@ -1,6 +1,7 @@
 #include "media_server/library/scanner.h"
 
 #include "media_server/media/kind.h"
+#include "media_server/media/metadata.h"
 #include "media_server/util/log.h"
 #include "media_server/util/path.h"
 
@@ -8,8 +9,11 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
+
+#ifdef MEDIA_SERVER_TEST_SCAN_HOLD
+#include <time.h>
+#endif
 
 /*
  * Hard cap on directory nesting. Each recursion level uses ~1.5 KB of stack
@@ -140,7 +144,15 @@ static int scan_dir(const char *library_root, const char *rel_dir, catalog_t *ca
             continue;
         }
 
-        if (catalog_add(catalog, kind, child_rel) != 0) {
+        if (kind == MEDIA_KIND_AUDIO) {
+            media_metadata_t metadata;
+            if (media_metadata_read(child_abs, child_rel, &metadata) != 0 ||
+                catalog_add_metadata(catalog, kind, child_rel, &metadata) != 0) {
+                LOG_ERROR("scanner", "failed to read/add %s", child_rel);
+                closedir(dir);
+                return -1;
+            }
+        } else if (catalog_add(catalog, kind, child_rel) != 0) {
             LOG_ERROR("scanner", "failed to add %s", child_rel);
             closedir(dir);
             return -1;

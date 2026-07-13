@@ -1,7 +1,9 @@
 #include "unity.h"
 
+#include "media_server/api/metadata_patch.h"
 #include "media_server/http/json_body.h"
 
+#include "mongoose.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -86,6 +88,54 @@ void test_json_rejects_trailing_garbage_and_overflow(void)
         -1, http_json_get_u32_field(overflow, strlen(overflow), "track_id", &id));
 }
 
+void test_json_optional_fields_distinguish_absent_value_and_null(void)
+{
+    char title[32];
+    uint32_t number = 0;
+    const char *body = "{\"title\":\"Fixed\",\"genre\":null,\"track_number\":7}";
+
+    TEST_ASSERT_EQUAL_INT(
+        HTTP_JSON_FIELD_VALUE,
+        http_json_get_optional_string(body, strlen(body), "title", title,
+                                      sizeof(title)));
+    TEST_ASSERT_EQUAL_STRING("Fixed", title);
+    TEST_ASSERT_EQUAL_INT(
+        HTTP_JSON_FIELD_NULL,
+        http_json_get_optional_string(body, strlen(body), "genre", title,
+                                      sizeof(title)));
+    TEST_ASSERT_EQUAL_INT(
+        HTTP_JSON_FIELD_ABSENT,
+        http_json_get_optional_string(body, strlen(body), "album", title,
+                                      sizeof(title)));
+    TEST_ASSERT_EQUAL_INT(
+        HTTP_JSON_FIELD_VALUE,
+        http_json_get_optional_u32(body, strlen(body), "track_number", &number));
+    TEST_ASSERT_EQUAL_UINT(7, number);
+    TEST_ASSERT_EQUAL_INT(
+        HTTP_JSON_FIELD_ABSENT,
+        http_json_get_optional_u32(body, strlen(body), "disc_number", &number));
+}
+
+void test_metadata_patch_validates_and_tracks_nulls(void)
+{
+    struct mg_http_message req = {0};
+    metadata_patch_t patch;
+
+    req.body = mg_str("{\"title\":\"Fixed\",\"release_date\":\"2024-02-29\","
+                      "\"track_number\":2,\"genre\":null}");
+    TEST_ASSERT_EQUAL_INT(0, api_parse_track_metadata_patch(&req, &patch));
+    TEST_ASSERT_BITS(METADATA_FIELD_TITLE, METADATA_FIELD_TITLE, patch.set_mask);
+    TEST_ASSERT_BITS(METADATA_FIELD_GENRE, METADATA_FIELD_GENRE, patch.clear_mask);
+    TEST_ASSERT_EQUAL_UINT(2, patch.values.track_number);
+
+    req.body = mg_str("{\"release_date\":\"2023-02-29\"}");
+    TEST_ASSERT_EQUAL_INT(-1, api_parse_track_metadata_patch(&req, &patch));
+    req.body = mg_str("{\"track_number\":0}");
+    TEST_ASSERT_EQUAL_INT(-1, api_parse_track_metadata_patch(&req, &patch));
+    req.body = mg_str("{\"unknown\":\"value\"}");
+    TEST_ASSERT_EQUAL_INT(-1, api_parse_track_metadata_patch(&req, &patch));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -96,5 +146,7 @@ int main(void)
     RUN_TEST(test_json_rejects_missing);
     RUN_TEST(test_json_rejects_malformed_key_smuggling);
     RUN_TEST(test_json_rejects_trailing_garbage_and_overflow);
+    RUN_TEST(test_json_optional_fields_distinguish_absent_value_and_null);
+    RUN_TEST(test_metadata_patch_validates_and_tracks_nulls);
     return UNITY_END();
 }

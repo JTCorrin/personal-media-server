@@ -2,6 +2,8 @@
 
 #include "media_server/library/catalog.h"
 
+#include <string.h>
+
 static catalog_t *catalog;
 
 void setUp(void)
@@ -80,6 +82,38 @@ void test_catalog_count_kind(void)
     TEST_ASSERT_EQUAL_UINT(1, catalog_count_kind(catalog, MEDIA_KIND_IMAGE));
 }
 
+void test_catalog_metadata_patch_and_clear_restores_scanned(void)
+{
+    metadata_patch_t patch = {0};
+    catalog_t *copy;
+    const catalog_item_t *item;
+
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "Artist/Album/Original.mp3"));
+    patch.set_mask = METADATA_FIELD_TITLE | METADATA_FIELD_RELEASE_DATE |
+                     METADATA_FIELD_TRACK_NUMBER;
+    strcpy(patch.values.title, "Corrected");
+    strcpy(patch.values.release_date, "2024-03-02");
+    patch.values.track_number = 3;
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(catalog, 1, &patch));
+
+    item = catalog_find_id(catalog, 1);
+    TEST_ASSERT_EQUAL_STRING("Corrected", item->title);
+    TEST_ASSERT_EQUAL_STRING("Original", item->scanned.title);
+    TEST_ASSERT_EQUAL_UINT(patch.set_mask, item->override_mask);
+
+    copy = catalog_clone(catalog);
+    TEST_ASSERT_NOT_NULL(copy);
+    memset(&patch, 0, sizeof(patch));
+    patch.clear_mask = METADATA_FIELD_TITLE | METADATA_FIELD_TRACK_NUMBER;
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(copy, 1, &patch));
+    item = catalog_find_id(copy, 1);
+    TEST_ASSERT_EQUAL_STRING("Original", item->title);
+    TEST_ASSERT_EQUAL_UINT(0, item->track_number);
+    TEST_ASSERT_EQUAL_STRING("Corrected", catalog_find_id(catalog, 1)->title);
+    catalog_destroy(copy);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -88,5 +122,6 @@ int main(void)
     RUN_TEST(test_catalog_find_id);
     RUN_TEST(test_catalog_rejects_invalid);
     RUN_TEST(test_catalog_count_kind);
+    RUN_TEST(test_catalog_metadata_patch_and_clear_restores_scanned);
     return UNITY_END();
 }

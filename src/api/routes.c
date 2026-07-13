@@ -33,6 +33,7 @@ int api_routes_register(router_t *router, app_context_t *ctx)
     if (add_route(router, "GET", "/api/ping", handle_ping, NULL) != 0 ||
         add_route(router, "GET", "/api/tracks", handle_tracks, ctx) != 0 ||
         add_route(router, "GET", "/api/tracks/:id", handle_track_by_id, ctx) != 0 ||
+        add_route(router, "PATCH", "/api/tracks/:id", handle_track_patch, ctx) != 0 ||
         add_route(router, "GET", "/api/images", handle_images, ctx) != 0 ||
         add_route(router, "GET", "/api/images/:id", handle_image_by_id, ctx) != 0 ||
         add_route(router, "GET", "/api/artists", handle_artists, ctx) != 0 ||
@@ -41,6 +42,7 @@ int api_routes_register(router_t *router, app_context_t *ctx)
             0 ||
         add_route(router, "GET", "/api/albums", handle_albums, ctx) != 0 ||
         add_route(router, "GET", "/api/albums/:id", handle_album_by_id, ctx) != 0 ||
+        add_route(router, "PATCH", "/api/albums/:id", handle_album_patch, ctx) != 0 ||
         add_route(router, "GET", "/api/albums/:id/tracks", handle_album_tracks, ctx) !=
             0 ||
         add_route(router, "GET", "/api/search", handle_search, ctx) != 0 ||
