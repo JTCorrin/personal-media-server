@@ -70,6 +70,7 @@ mpv http://127.0.0.1:8080/stream/1
 --listen <url>         listen URL (default: http://127.0.0.1:8080)
 --library-dir <path>   media library root directory
 --catalog-db <path>    sqlite catalog snapshot (stable ids / fast boot)
+--user-db <path>       sqlite user data (playlists, favourites, history)
 --log-level <name>     trace|debug|info|warn|error|fatal (default: info)
 --no-terminal-log      disable stderr logging
 --log-file <path>      also append logs to a file
@@ -85,6 +86,7 @@ Example with all sinks:
   --listen http://0.0.0.0:8080 \
   --library-dir /srv/music \
   --catalog-db /var/lib/media-server/catalog.db \
+  --user-db /var/lib/media-server/user.db \
   --log-level debug \
   --log-file /var/log/media-server.log \
   --log-db /var/lib/media-server/logs.db
@@ -112,6 +114,21 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
 | GET    | `/api/library/status`     | Scan status and catalog counts                 |
 | POST   | `/api/library/scan`       | Background rescan (`?force=1` to restart)      |
+| GET    | `/api/playlists`          | List playlists                                 |
+| POST   | `/api/playlists`          | Create playlist `{"name":"..."}`               |
+| GET    | `/api/playlists/:id`      | One playlist                                   |
+| PATCH  | `/api/playlists/:id`      | Rename `{"name":"..."}`                        |
+| DELETE | `/api/playlists/:id`      | Delete playlist                                |
+| GET    | `/api/playlists/:id/tracks` | Playlist tracks                              |
+| PUT    | `/api/playlists/:id/tracks` | Replace tracks `{"track_ids":[...]}`         |
+| GET    | `/api/favourites`         | Favourited tracks                              |
+| PUT    | `/api/favourites/:id`     | Favourite a track                              |
+| DELETE | `/api/favourites/:id`     | Unfavourite                                    |
+| GET    | `/api/history`            | Recently played                                |
+| POST   | `/api/history`            | Record play `{"track_id":N}`                   |
+| GET    | `/api/discover/random`    | Random audio tracks                            |
+| GET    | `/api/discover/recent`    | Newest catalog audio ids                       |
+| GET    | `/api/discover/recently-played` | From play history                        |
 | GET    | `/stream/:id`             | Stream an audio track; supports `Range` seeks  |
 | GET    | `/cover/:id`              | Serve an image item (use album `cover_id`)     |
 
@@ -124,10 +141,6 @@ total:
 ```json
 {"items":[...],"total":123,"limit":50,"offset":0}
 ```
-
-Exception: within `/api/search` responses, the `artists` and `albums`
-sections cap at `limit` but ignore `offset` (their `offset` is always
-reported as `0`); only the `tracks` section honors `offset`.
 
 ### Items and metadata
 
@@ -146,15 +159,18 @@ Artist and album IDs are synthetic (discovery order) and not persisted.
 Album JSON includes `cover_id` (catalog image id, or `null`) matched by
 artist/album path meta, preferring `cover.*` / `folder.*` / `front.*`.
 
+Search accepts optional `fuzzy=1` for typo-tolerant matching (edit distance ≤ 2)
+in addition to case-insensitive substring match. Results are ranked by relevance
+(exact → prefix → word-boundary substring → substring → fuzzy) before
+`limit`/`offset` paging.
+
+Playlists, favourites, and history require `--user-db`. Streaming a track also
+appends to play history when a user DB is configured.
+
 Errors: unknown IDs, wrong-kind IDs (e.g. streaming an image), and unmatched
 paths return `404`; `/api/search` without `q` returns
 `400 {"error":"missing_query"}`, and a `q` longer than 255 bytes (or
 undecodable) returns `400 {"error":"invalid_query"}`.
-
-### Planned (return `501 Not Implemented`)
-
-Playlists (`/api/playlists...`) are registered as stubs and respond with
-`501` until implemented.
 
 ## Library scanning
 

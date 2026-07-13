@@ -4,6 +4,7 @@
 #include "media_server/http/router.h"
 #include "media_server/library/browse.h"
 #include "media_server/library/catalog.h"
+#include "media_server/library/user_store.h"
 
 #include <pthread.h>
 #include <signal.h>
@@ -22,6 +23,8 @@ typedef struct app_context {
     browse_index_t *browse;  /* may be NULL; treated as an empty index */
     const char *library_dir; /* may be NULL if no library configured */
     const char *catalog_db_path; /* may be NULL; snapshot path for rescans */
+    const char *user_db_path;    /* may be NULL */
+    user_store_t *user_store;    /* NULL if no user_db */
 
     pthread_mutex_t mu;
     bool scanning;

@@ -7,6 +7,7 @@
 #include "media_server/library/catalog_store.h"
 #include "media_server/library/runtime.h"
 #include "media_server/library/scanner.h"
+#include "media_server/library/user_store.h"
 #include "media_server/media/kind.h"
 #include "media_server/util/log.h"
 
@@ -125,8 +126,19 @@ int main(int argc, char *argv[])
     app_ctx.browse = browse;
     app_ctx.library_dir = config.library_dir;
     app_ctx.catalog_db_path = config.catalog_db_path;
+    app_ctx.user_db_path = config.user_db_path;
+    app_ctx.user_store = NULL;
     catalog = NULL; /* ownership transferred to app_ctx / runtime swap */
     browse = NULL;
+
+    if (config.user_db_path != NULL) {
+        app_ctx.user_store = user_store_open(config.user_db_path);
+        if (app_ctx.user_store == NULL) {
+            LOG_ERROR("main", "failed to open user db: %s", config.user_db_path);
+            goto cleanup;
+        }
+        LOG_INFO("main", "user db ready: %s", config.user_db_path);
+    }
 
     if (library_runtime_init(&app_ctx) != 0) {
         LOG_ERROR("main", "failed to init library runtime");
@@ -174,6 +186,7 @@ cleanup:
     if (runtime_ready) {
         library_runtime_shutdown(&app_ctx);
     }
+    user_store_close(app_ctx.user_store);
     browse_index_destroy(app_ctx.browse);
     catalog_destroy(app_ctx.catalog);
     browse_index_destroy(browse);

@@ -9,6 +9,7 @@ LIBRARY="${ROOT}/tests/fixtures/library"
 BIN="${ROOT}/media-server"
 LOG="$(mktemp)"
 CATALOG_DB="$(mktemp --suffix=.db)"
+USER_DB="$(mktemp --suffix=.db)"
 PID=""
 
 cleanup() {
@@ -17,7 +18,7 @@ cleanup() {
     kill "${PID}" 2>/dev/null || true
     wait "${PID}" 2>/dev/null || true
   fi
-  rm -f "${LOG}" "${CATALOG_DB}"
+  rm -f "${LOG}" "${CATALOG_DB}" "${USER_DB}"
 }
 trap cleanup EXIT
 
@@ -26,7 +27,7 @@ make media-server >/dev/null
 
 start_server() {
   "${BIN}" --listen "${LISTEN}" --library-dir "${LIBRARY}" \
-    --catalog-db "${CATALOG_DB}" --log-level info >"${LOG}" 2>&1 &
+    --catalog-db "${CATALOG_DB}" --user-db "${USER_DB}" --log-level info >"${LOG}" 2>&1 &
   PID=$!
 
   for _ in $(seq 1 50); do
@@ -244,7 +245,65 @@ expect_status GET "/api/tracks/${stable_id}" 200
 expect_status GET "/stream/${stable_id}" 200
 echo "OK catalog id ${stable_id} stable after restart"
 
-echo "==> stub routes (501)"
-expect_status GET /api/playlists 501
+echo "==> playlists / favourites / history / discover / fuzzy"
+pl_body="$(mktemp)"
+code="$(curl -s -o "${pl_body}" -w '%{http_code}' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Smoke Mix"}' "${LISTEN}/api/playlists")"
+if [[ "${code}" != "201" ]]; then
+  echo "FAIL POST /api/playlists expected 201, got ${code}: $(cat "${pl_body}")" >&2
+  exit 1
+fi
+pl_id="$(sed -n 's/.*"id":\([0-9]*\).*/\1/p' "${pl_body}" | head -1)"
+if [[ -z "${pl_id}" ]]; then
+  echo "FAIL could not parse playlist id: $(cat "${pl_body}")" >&2
+  exit 1
+fi
+echo "OK POST /api/playlists -> 201 id=${pl_id}"
+
+code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+  -H 'Content-Type: application/json' \
+  -d "{\"track_ids\":[${audio_id}]}" "${LISTEN}/api/playlists/${pl_id}/tracks")"
+if [[ "${code}" != "200" ]]; then
+  echo "FAIL PUT playlist tracks expected 200, got ${code}" >&2
+  exit 1
+fi
+expect_status GET "/api/playlists/${pl_id}/tracks" 200
+expect_status GET /api/playlists 200
+
+expect_status PUT "/api/favourites/${audio_id}" 200
+expect_status GET /api/favourites 200
+expect_status DELETE "/api/favourites/${audio_id}" 200
+
+code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"track_id\":${audio_id}}" "${LISTEN}/api/history")"
+if [[ "${code}" != "200" ]]; then
+  echo "FAIL POST /api/history expected 200, got ${code}" >&2
+  exit 1
+fi
+expect_status GET /api/history 200
+expect_status GET /api/discover/random 200
+expect_status GET /api/discover/recent 200
+expect_status GET /api/discover/recently-played 200
+
+fuzzy="$(curl -sf "${LISTEN}/api/search?q=Artst&fuzzy=1")"
+if ! printf '%s' "${fuzzy}" | grep -q '"fuzzy":true'; then
+  echo "FAIL fuzzy flag missing: ${fuzzy}" >&2
+  exit 1
+fi
+if ! printf '%s' "${fuzzy}" | grep -q '"artists"'; then
+  echo "FAIL fuzzy search missing artists: ${fuzzy}" >&2
+  exit 1
+fi
+echo "OK GET /api/search?q=Artst&fuzzy=1"
+
+code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "${LISTEN}/api/playlists/${pl_id}")"
+if [[ "${code}" != "200" ]]; then
+  echo "FAIL DELETE playlist expected 200, got ${code}" >&2
+  exit 1
+fi
+rm -f "${pl_body}"
+echo "OK playlists/favourites/history/discover/fuzzy"
 
 echo "smoke api: all checks passed"

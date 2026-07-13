@@ -40,11 +40,6 @@ static const expected_route_t LIVE_ROUTES[] = {
     {"GET", "/api/search", "/api/search"},
     {"GET", "/api/library/status", "/api/library/status"},
     {"POST", "/api/library/scan", "/api/library/scan"},
-    {"GET", "/stream/1", "/stream/:id"},
-    {"GET", "/cover/3", "/cover/:id"},
-};
-
-static const expected_route_t STUB_ROUTES[] = {
     {"GET", "/api/playlists", "/api/playlists"},
     {"POST", "/api/playlists", "/api/playlists"},
     {"GET", "/api/playlists/1", "/api/playlists/:id"},
@@ -52,6 +47,16 @@ static const expected_route_t STUB_ROUTES[] = {
     {"DELETE", "/api/playlists/1", "/api/playlists/:id"},
     {"GET", "/api/playlists/1/tracks", "/api/playlists/:id/tracks"},
     {"PUT", "/api/playlists/1/tracks", "/api/playlists/:id/tracks"},
+    {"GET", "/api/favourites", "/api/favourites"},
+    {"PUT", "/api/favourites/1", "/api/favourites/:id"},
+    {"DELETE", "/api/favourites/1", "/api/favourites/:id"},
+    {"GET", "/api/history", "/api/history"},
+    {"POST", "/api/history", "/api/history"},
+    {"GET", "/api/discover/random", "/api/discover/random"},
+    {"GET", "/api/discover/recent", "/api/discover/recent"},
+    {"GET", "/api/discover/recently-played", "/api/discover/recently-played"},
+    {"GET", "/stream/1", "/stream/:id"},
+    {"GET", "/cover/3", "/cover/:id"},
 };
 
 void setUp(void)
@@ -125,14 +130,6 @@ void test_api_routes_register_all_live(void)
     }
 }
 
-void test_api_routes_register_all_stubs(void)
-{
-    TEST_ASSERT_EQUAL_INT(0, api_routes_register(router, &ctx));
-    for (size_t i = 0; i < sizeof(STUB_ROUTES) / sizeof(STUB_ROUTES[0]); i++) {
-        assert_route_matches(&STUB_ROUTES[i]);
-    }
-}
-
 void test_api_routes_tracks_list_not_swallowed_by_id(void)
 {
     router_match_t match;
@@ -181,7 +178,6 @@ int main(void)
     RUN_TEST(test_api_routes_register_tracks);
     RUN_TEST(test_api_routes_register_stream_and_cover);
     RUN_TEST(test_api_routes_register_all_live);
-    RUN_TEST(test_api_routes_register_all_stubs);
     RUN_TEST(test_api_routes_tracks_list_not_swallowed_by_id);
     RUN_TEST(test_api_routes_unknown_path_is_unmatched);
     RUN_TEST(test_http_query_get_distinguishes_missing_and_invalid);

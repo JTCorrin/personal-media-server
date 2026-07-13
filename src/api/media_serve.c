@@ -4,8 +4,10 @@
 #include "media_server/api/params.h"
 #include "media_server/http/server.h"
 #include "media_server/library/catalog.h"
+#include "media_server/library/user_store.h"
 #include "media_server/media/file.h"
 #include "media_server/media/kind.h"
+#include "media_server/util/log.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -20,6 +22,7 @@ static void serve_catalog_file(const router_match_t *match, void *req, void *res
     char rel_path[CATALOG_PATH_MAX];
     const char *ctype;
     const char *library_dir;
+    user_store_t *user_store = NULL;
 
     if (api_parse_id_param(match, &id) != 0) {
         http_reply_not_found(res);
@@ -43,11 +46,18 @@ static void serve_catalog_file(const router_match_t *match, void *req, void *res
 
     memcpy(rel_path, item->path, sizeof(rel_path));
     library_dir = ctx->library_dir;
+    user_store = ctx->user_store;
     api_context_unlock(ctx);
 
     if (media_resolve_path(library_dir, rel_path, abs_path, sizeof(abs_path)) != 0) {
         http_reply_not_found(res);
         return;
+    }
+
+    if (required_kind == MEDIA_KIND_AUDIO && user_store != NULL) {
+        if (user_store_history_append(user_store, id) != 0) {
+            LOG_WARN("http", "failed to record play history for track %u", id);
+        }
     }
 
     ctype = media_content_type(rel_path);

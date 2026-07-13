@@ -19,6 +19,7 @@ typedef struct app_config {
     const char *listen_url;
     const char *library_dir;     /* optional library root; NULL if unset */
     const char *catalog_db_path; /* optional SQLite catalog snapshot; NULL if unset */
+    const char *user_db_path;    /* optional playlists/favourites/history DB */
     bool show_help;
 } app_config_t;
 
