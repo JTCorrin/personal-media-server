@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>media-server</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: {
+              950: "#0c1210",
+              900: "#121a17",
+              800: "#1a2621",
+              700: "#24332c",
+              600: "#334840",
+            },
+            copper: {
+              300: "#e8b87a",
+              400: "#d4924a",
+              500: "#c07830",
+            },
+            mist: "#c8d5cc",
+            mute: "#7a8f84",
+          },
+          fontFamily: {
+            display: ['"Fraunces"', "Georgia", "serif"],
+            sans: ['"Figtree"', "system-ui", "sans-serif"],
+          },
+          boxShadow: {
+            glow: "0 0 60px -12px rgba(196, 120, 48, 0.35)",
+          },
+          keyframes: {
+            rise: {
+              "0%": { opacity: "0", transform: "translateY(10px)" },
+              "100%": { opacity: "1", transform: "translateY(0)" },
+            },
+            pulseSoft: {
+              "0%, 100%": { opacity: "0.45" },
+              "50%": { opacity: "0.9" },
+            },
+          },
+          animation: {
+            rise: "rise 0.45s ease-out both",
+            "pulse-soft": "pulseSoft 2.4s ease-in-out infinite",
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap" rel="stylesheet" />
+  <style>
+    html { scroll-behavior: smooth; }
+    body {
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(196, 120, 48, 0.16), transparent 55%),
+        radial-gradient(900px 500px at 95% 5%, rgba(70, 120, 100, 0.14), transparent 50%),
+        linear-gradient(165deg, #0c1210 0%, #121a17 45%, #0e1512 100%);
+      min-height: 100vh;
+    }
+    .row-hover:hover { background: rgba(255, 255, 255, 0.035); }
+    .tab-active {
+      color: #e8b87a;
+      box-shadow: inset 0 -2px 0 #c07830;
+    }
+    audio { width: 100%; height: 2.25rem; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #334840; border-radius: 999px; }
+  </style>
+</head>
+<body class="font-sans text-mist antialiased pb-36">
+  <header class="sticky top-0 z-30 border-b border-white/5 bg-ink-950/80 backdrop-blur-md">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-4 sm:px-6">
+      <div class="min-w-0 flex-1">
+        <p class="font-display text-2xl font-bold tracking-tight text-white sm:text-3xl">media-server</p>
+        <p class="mt-0.5 text-sm text-mute">Local library playground · test fixture</p>
+      </div>
+      <label class="flex min-w-[14rem] flex-col gap-1 text-xs text-mute">
+        API base
+        <input id="api-base" type="url" value="http://127.0.0.1:8080"
+          class="border-0 border-b border-white/20 bg-transparent py-1 font-sans text-sm text-mist outline-none focus:border-copper-400" />
+      </label>
+      <div class="flex items-center gap-2 text-xs text-mute">
+        <span id="status-dot" class="inline-block h-2 w-2 rounded-full bg-copper-400 animate-pulse-soft"></span>
+        <span id="status-label">connecting…</span>
+      </div>
+    </div>
+    <nav class="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 sm:px-6" id="tabs">
+      <button data-tab="browse" class="tab tab-active shrink-0 px-3 py-2.5 text-sm font-medium text-mute transition">Browse</button>
+      <button data-tab="search" class="tab shrink-0 px-3 py-2.5 text-sm font-medium text-mute transition">Search</button>
+      <button data-tab="discover" class="tab shrink-0 px-3 py-2.5 text-sm font-medium text-mute transition">Discover</button>
+      <button data-tab="playlists" class="tab shrink-0 px-3 py-2.5 text-sm font-medium text-mute transition">Playlists</button>
+      <button data-tab="library" class="tab shrink-0 px-3 py-2.5 text-sm font-medium text-mute transition">Library</button>
+    </nav>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+    <!-- Browse -->
+    <section id="panel-browse" class="panel animate-rise space-y-8">
+      <div class="grid gap-8 lg:grid-cols-2">
+        <div>
+          <div class="mb-3 flex items-end justify-between gap-2">
+            <h2 class="font-display text-xl text-white">Artists</h2>
+            <button type="button" id="btn-artists-more" class="text-xs text-copper-300 hover:text-copper-400">Load more</button>
+          </div>
+          <ul id="artist-list" class="divide-y divide-white/5 border-y border-white/5"></ul>
+        </div>
+        <div>
+          <div class="mb-3 flex items-end justify-between gap-2">
+            <h2 class="font-display text-xl text-white">
+              Albums
+              <span id="album-context" class="ml-2 text-sm font-sans font-normal text-mute"></span>
+            </h2>
+            <button type="button" id="btn-albums-more" class="text-xs text-copper-300 hover:text-copper-400">Load more</button>
+          </div>
+          <ul id="album-list" class="divide-y divide-white/5 border-y border-white/5"></ul>
+        </div>
+      </div>
+      <div>
+        <div class="mb-3 flex items-end justify-between gap-2">
+          <h2 class="font-display text-xl text-white">
+            Tracks
+            <span id="track-context" class="ml-2 text-sm font-sans font-normal text-mute"></span>
+          </h2>
+          <button type="button" id="btn-tracks-more" class="text-xs text-copper-300 hover:text-copper-400">Load more</button>
+        </div>
+        <ul id="track-list" class="divide-y divide-white/5 border-y border-white/5"></ul>
+      </div>
+    </section>
+
+    <!-- Search -->
+    <section id="panel-search" class="panel hidden animate-rise space-y-6">
+      <form id="search-form" class="flex flex-wrap items-end gap-3">
+        <label class="min-w-[12rem] flex-1">
+          <span class="mb-1 block text-xs uppercase tracking-wider text-mute">Query</span>
+          <input id="search-q" type="search" placeholder="Beat, Radiohed…"
+            class="w-full rounded-none border-0 border-b border-white/20 bg-transparent px-0 py-2 text-lg text-white outline-none placeholder:text-mute/60 focus:border-copper-400" />
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 pb-2 text-sm text-mute">
+          <input id="search-fuzzy" type="checkbox" class="accent-copper-500" />
+          Fuzzy
+        </label>
+        <button type="submit"
+          class="bg-copper-500 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-copper-400">
+          Search
+        </button>
+      </form>
+      <div id="search-results" class="space-y-8"></div>
+    </section>
+
+    <!-- Discover -->
+    <section id="panel-discover" class="panel hidden animate-rise space-y-8">
+      <div class="flex flex-wrap gap-2">
+        <button type="button" data-discover="random" class="discover-btn border border-copper-500/40 px-3 py-1.5 text-sm text-copper-300 hover:bg-copper-500/10">Random</button>
+        <button type="button" data-discover="recent" class="discover-btn border border-white/10 px-3 py-1.5 text-sm text-mute hover:border-white/25 hover:text-mist">Recent</button>
+        <button type="button" data-discover="recently-played" class="discover-btn border border-white/10 px-3 py-1.5 text-sm text-mute hover:border-white/25 hover:text-mist">Recently played</button>
+      </div>
+      <ul id="discover-list" class="divide-y divide-white/5 border-y border-white/5"></ul>
+    </section>
+
+    <!-- Playlists -->
+    <section id="panel-playlists" class="panel hidden animate-rise space-y-6">
+      <p id="playlists-hint" class="hidden text-sm text-mute">Needs <code class="text-copper-300">--user-db</code>.</p>
+      <form id="playlist-create" class="flex flex-wrap items-end gap-3">
+        <label class="min-w-[12rem] flex-1">
+          <span class="mb-1 block text-xs uppercase tracking-wider text-mute">New playlist</span>
+          <input id="playlist-name" type="text" placeholder="Late night"
+            class="w-full border-0 border-b border-white/20 bg-transparent px-0 py-2 text-white outline-none focus:border-copper-400" />
+        </label>
+        <button type="submit" class="bg-copper-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-copper-400">Create</button>
+      </form>
+      <ul id="playlist-list" class="divide-y divide-white/5 border-y border-white/5"></ul>
+      <div>
+        <h3 id="playlist-tracks-title" class="mb-3 font-display text-lg text-white"></h3>
+        <ul id="playlist-tracks" class="divide-y divide-white/5 border-y border-white/5"></ul>
+      </div>
+    </section>
+
+    <!-- Library -->
+    <section id="panel-library" class="panel hidden animate-rise space-y-6">
+      <div class="flex flex-wrap items-center gap-3">
+        <button type="button" id="btn-scan"
+          class="bg-copper-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-copper-400">Scan library</button>
+        <button type="button" id="btn-scan-force"
+          class="border border-white/15 px-4 py-2 text-sm text-mute hover:border-white/30 hover:text-mist">Force restart</button>
+        <button type="button" id="btn-refresh-status" class="text-sm text-copper-300 hover:text-copper-400">Refresh</button>
+      </div>
+      <pre id="library-status" class="overflow-x-auto border border-white/10 bg-ink-900/60 p-4 text-sm leading-relaxed text-mist"></pre>
+      <div>
+        <h3 class="mb-3 font-display text-lg text-white">Favourites</h3>
+        <ul id="fav-list" class="divide-y divide-white/5 border-y border-white/5"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- Player -->
+  <footer class="fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-ink-950/95 shadow-glow backdrop-blur-md">
+    <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:px-6">
+      <div class="flex min-w-0 flex-1 items-center gap-3">
+        <div id="now-cover" class="h-14 w-14 shrink-0 bg-ink-700 bg-cover bg-center ring-1 ring-white/10"></div>
+        <div class="min-w-0">
+          <p id="now-title" class="truncate font-medium text-white">Nothing playing</p>
+          <p id="now-meta" class="truncate text-sm text-mute">Pick a track</p>
+        </div>
+        <button type="button" id="btn-fav" title="Favourite"
+          class="ml-auto shrink-0 px-2 text-xl text-mute transition hover:text-copper-300 sm:ml-2" disabled>♡</button>
+      </div>
+      <div class="w-full sm:max-w-md">
+        <audio id="player" controls preload="none"></audio>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const state = {
+      tab: "browse",
+      artists: { items: [], total: 0, offset: 0 },
+      albums: { items: [], total: 0, offset: 0, artistId: null },
+      tracks: { items: [], total: 0, offset: 0, albumId: null, coverId: null },
+      trackIndex: new Map(),
+      now: null,
+      favIds: new Set(),
+      userDb: true,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function apiBase() {
+      return ($("api-base").value || "http://127.0.0.1:8080").replace(/\/$/, "");
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(apiBase() + path, {
+        headers: { Accept: "application/json", ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+        ...opts,
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+      if (!res.ok) {
+        const err = new Error((data && data.error) || res.statusText || "request failed");
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
+    function coverUrl(id) {
+      return id ? `${apiBase()}/cover/${id}` : "";
+    }
+
+    function streamUrl(id) {
+      return `${apiBase()}/stream/${id}`;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function rememberTracks(items) {
+      for (const t of items || []) {
+        if (t && t.id != null) state.trackIndex.set(Number(t.id), t);
+      }
+    }
+
+    function trackRow(t) {
+      const fav = state.favIds.has(t.id);
+      return `
+        <li class="row-hover flex items-center gap-3 px-1 py-2.5">
+          <button type="button" data-action="play" data-track-id="${t.id}"
+            class="min-w-0 flex-1 text-left">
+            <span class="block truncate text-sm font-medium text-white">${escapeHtml(t.title || t.filename)}</span>
+            <span class="block truncate text-xs text-mute">${escapeHtml(t.artist || "—")} · ${escapeHtml(t.album || "—")}</span>
+          </button>
+          <button type="button" data-action="toggle-fav" data-track-id="${t.id}"
+            class="px-1 text-lg ${fav ? "text-copper-400" : "text-mute"} hover:text-copper-300">${fav ? "♥" : "♡"}</button>
+        </li>`;
+    }
+
+    function artistRow(a) {
+      return `
+        <li class="row-hover">
+          <button type="button" data-action="open-artist" data-artist-id="${a.id}"
+            class="flex w-full items-baseline justify-between gap-3 px-1 py-2.5 text-left">
+            <span class="truncate text-sm text-white">${escapeHtml(a.name)}</span>
+            <span class="shrink-0 text-xs text-mute">${a.album_count} alb · ${a.track_count} tr</span>
+          </button>
+        </li>`;
+    }
+
+    function albumRow(a) {
+      const cover = a.cover_id ? `style="background-image:url('${coverUrl(a.cover_id)}')"` : "";
+      const coverId = a.cover_id != null ? a.cover_id : "";
+      return `
+        <li class="row-hover">
+          <button type="button" data-action="open-album" data-album-id="${a.id}"
+            data-artist-id="${a.artist_id || ""}" data-cover-id="${coverId}"
+            class="flex w-full items-center gap-3 px-1 py-2.5 text-left">
+            <span class="h-10 w-10 shrink-0 bg-ink-700 bg-cover bg-center ring-1 ring-white/10" ${cover}></span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm text-white">${escapeHtml(a.name)}</span>
+              <span class="block truncate text-xs text-mute">${escapeHtml(a.artist || "—")} · ${a.track_count} tracks</span>
+            </span>
+          </button>
+        </li>`;
+    }
+
+    async function playTrack(t) {
+      if (!t) return;
+      state.now = t;
+      $("now-title").textContent = t.title || t.filename || "Track";
+      $("now-meta").textContent = [t.artist, t.album].filter(Boolean).join(" · ") || "—";
+      const cover = $("now-cover");
+      if (state.tracks.coverId) {
+        cover.style.backgroundImage = `url('${coverUrl(state.tracks.coverId)}')`;
+      } else {
+        cover.style.backgroundImage = "";
+      }
+      const player = $("player");
+      player.src = streamUrl(t.id);
+      player.play().catch(() => {});
+      updateFavButton();
+      try { await api("/api/history", { method: "POST", body: JSON.stringify({ track_id: t.id }) }); } catch { /* no user-db */ }
+    }
+
+    function updateFavButton() {
+      const btn = $("btn-fav");
+      if (!state.now) {
+        btn.disabled = true;
+        btn.textContent = "♡";
+        return;
+      }
+      btn.disabled = !state.userDb;
+      const on = state.favIds.has(state.now.id);
+      btn.textContent = on ? "♥" : "♡";
+      btn.classList.toggle("text-copper-400", on);
+    }
+
+    async function toggleFav(id) {
+      if (!state.userDb) return;
+      try {
+        if (state.favIds.has(id)) {
+          await api(`/api/favourites/${id}`, { method: "DELETE" });
+          state.favIds.delete(id);
+        } else {
+          await api(`/api/favourites/${id}`, { method: "PUT" });
+          state.favIds.add(id);
+        }
+        refreshVisibleLists();
+        updateFavButton();
+      } catch (e) {
+        toast(e.message);
+      }
+    }
+
+    function toast(msg) {
+      $("status-label").textContent = msg;
+      setTimeout(pingStatus, 2500);
+    }
+
+    function setTab(name) {
+      state.tab = name;
+      document.querySelectorAll(".tab").forEach((t) => {
+        t.classList.toggle("tab-active", t.dataset.tab === name);
+        t.classList.toggle("text-mute", t.dataset.tab !== name);
+      });
+      document.querySelectorAll(".panel").forEach((p) => p.classList.add("hidden"));
+      const panel = $(`panel-${name}`);
+      if (panel) {
+        panel.classList.remove("hidden");
+        panel.classList.remove("animate-rise");
+        void panel.offsetWidth;
+        panel.classList.add("animate-rise");
+      }
+      if (name === "library") loadLibrary();
+      if (name === "playlists") loadPlaylists();
+      if (name === "discover") loadDiscover("random");
+    }
+
+    async function openArtist(id) {
+      const artist = state.artists.items.find((a) => a.id === id);
+      $("album-context").textContent = artist ? `· ${artist.name}` : "";
+      $("track-context").textContent = "";
+      await loadAlbums(true, id);
+      $("album-list").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    async function openAlbum(id, coverId, opts = {}) {
+      const album = state.albums.items.find((a) => a.id === id);
+      $("track-context").textContent = album ? `· ${album.name}` : `· album ${id}`;
+      if (opts.artistId) {
+        await loadAlbums(true, opts.artistId);
+      }
+      await loadAlbumTracks(true, id, coverId);
+      $("track-list").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    async function loadArtists(reset = false) {
+      if (reset) { state.artists = { items: [], total: 0, offset: 0 }; }
+      const data = await api(`/api/artists?limit=40&offset=${state.artists.offset}`);
+      state.artists.items.push(...data.items);
+      state.artists.total = data.total;
+      state.artists.offset += data.items.length;
+      $("artist-list").innerHTML = state.artists.items.map(artistRow).join("") || empty("No artists");
+      $("btn-artists-more").classList.toggle("hidden", state.artists.offset >= state.artists.total);
+    }
+
+    async function loadAlbums(reset = false, artistId = null) {
+      if (reset) {
+        state.albums = { items: [], total: 0, offset: 0, artistId };
+      }
+      const path = state.albums.artistId
+        ? `/api/artists/${state.albums.artistId}/albums?limit=40&offset=${state.albums.offset}`
+        : `/api/albums?limit=40&offset=${state.albums.offset}`;
+      const data = await api(path);
+      state.albums.items.push(...data.items);
+      state.albums.total = data.total;
+      state.albums.offset += data.items.length;
+      $("album-list").innerHTML = state.albums.items.map(albumRow).join("") || empty("No albums");
+      $("btn-albums-more").classList.toggle("hidden", state.albums.offset >= state.albums.total);
+    }
+
+    async function loadAlbumTracks(reset, albumId, coverId) {
+      if (reset) {
+        state.tracks = {
+          items: [],
+          total: 0,
+          offset: 0,
+          albumId: Number(albumId),
+          coverId: coverId ? Number(coverId) : null,
+        };
+      }
+      const data = await api(`/api/albums/${state.tracks.albumId}/tracks?limit=50&offset=${state.tracks.offset}`);
+      rememberTracks(data.items);
+      state.tracks.items.push(...data.items);
+      state.tracks.total = data.total;
+      state.tracks.offset += data.items.length;
+      renderTrackList();
+      $("btn-tracks-more").classList.toggle("hidden", state.tracks.offset >= state.tracks.total);
+    }
+
+    async function loadAllTracks(reset = false) {
+      if (reset) {
+        state.tracks = { items: [], total: 0, offset: 0, albumId: null, coverId: null };
+        $("track-context").textContent = "";
+      }
+      const data = await api(`/api/tracks?limit=50&offset=${state.tracks.offset}`);
+      rememberTracks(data.items);
+      state.tracks.items.push(...data.items);
+      state.tracks.total = data.total;
+      state.tracks.offset += data.items.length;
+      renderTrackList();
+      $("btn-tracks-more").classList.toggle("hidden", state.tracks.offset >= state.tracks.total);
+    }
+
+    function renderTrackList() {
+      $("track-list").innerHTML = state.tracks.items.map((t) => trackRow(t)).join("") || empty("No tracks");
+    }
+
+    function refreshVisibleLists() {
+      if (state.tracks.items.length) renderTrackList();
+      if (state.tab === "library") loadFavs();
+      if (state.tab === "discover") {
+        const list = $("discover-list");
+        if (list.dataset.cache) {
+          try {
+            const items = JSON.parse(list.dataset.cache);
+            rememberTracks(items);
+            list.innerHTML = items.map((t) => trackRow(t)).join("");
+          } catch { /* ignore */ }
+        }
+      }
+      const searchRoot = $("search-results");
+      if (searchRoot && state.tab === "search") {
+        /* fav hearts only — leave search results as-is */
+        searchRoot.querySelectorAll("[data-action='toggle-fav']").forEach((btn) => {
+          const id = Number(btn.dataset.trackId);
+          const on = state.favIds.has(id);
+          btn.textContent = on ? "♥" : "♡";
+          btn.classList.toggle("text-copper-400", on);
+          btn.classList.toggle("text-mute", !on);
+        });
+      }
+    }
+
+    function empty(msg) {
+      return `<li class="px-1 py-6 text-sm text-mute">${escapeHtml(msg)}</li>`;
+    }
+
+    async function runSearch(e) {
+      e.preventDefault();
+      const q = $("search-q").value.trim();
+      if (!q) return;
+      const fuzzy = $("search-fuzzy").checked ? "&fuzzy=1" : "";
+      const data = await api(`/api/search?q=${encodeURIComponent(q)}${fuzzy}&limit=25`);
+      rememberTracks(data.tracks.items);
+      /* Keep artist/album rows addressable after navigating to Browse. */
+      for (const a of data.artists.items || []) {
+        if (!state.artists.items.some((x) => x.id === a.id)) state.artists.items.push(a);
+      }
+      for (const a of data.albums.items || []) {
+        if (!state.albums.items.some((x) => x.id === a.id)) state.albums.items.push(a);
+      }
+      const root = $("search-results");
+      root.innerHTML = `
+        <div>
+          <h3 class="mb-2 font-display text-lg text-white">Artists <span class="text-sm font-sans text-mute">${data.artists.total}</span></h3>
+          <ul class="divide-y divide-white/5 border-y border-white/5">${data.artists.items.map(artistRow).join("") || empty("None")}</ul>
+        </div>
+        <div>
+          <h3 class="mb-2 font-display text-lg text-white">Albums <span class="text-sm font-sans text-mute">${data.albums.total}</span></h3>
+          <ul class="divide-y divide-white/5 border-y border-white/5">${data.albums.items.map(albumRow).join("") || empty("None")}</ul>
+        </div>
+        <div>
+          <h3 class="mb-2 font-display text-lg text-white">Tracks <span class="text-sm font-sans text-mute">${data.tracks.total}</span></h3>
+          <ul class="divide-y divide-white/5 border-y border-white/5">${data.tracks.items.map((t) => trackRow(t)).join("") || empty("None")}</ul>
+        </div>`;
+    }
+
+    async function loadDiscover(kind) {
+      document.querySelectorAll(".discover-btn").forEach((b) => {
+        const on = b.dataset.discover === kind;
+        b.classList.toggle("border-copper-500/40", on);
+        b.classList.toggle("text-copper-300", on);
+        b.classList.toggle("border-white/10", !on);
+        b.classList.toggle("text-mute", !on);
+      });
+      const data = await api(`/api/discover/${kind}?limit=30`);
+      rememberTracks(data.items);
+      const list = $("discover-list");
+      list.dataset.cache = JSON.stringify(data.items || []);
+      list.innerHTML = (data.items || []).map((t) => trackRow(t)).join("") || empty("Nothing here");
+    }
+
+    async function loadPlaylists() {
+      try {
+        const data = await api("/api/playlists");
+        $("playlists-hint").classList.add("hidden");
+        const list = $("playlist-list");
+        list.innerHTML = (data.items || []).map((p) => `
+          <li class="row-hover flex items-center gap-2 px-1 py-2.5">
+            <button type="button" data-action="open-playlist" data-playlist-id="${p.id}"
+              class="min-w-0 flex-1 truncate text-left text-sm text-white">${escapeHtml(p.name)}
+              <span class="text-mute"> · ${p.track_count}</span></button>
+            <button type="button" data-action="delete-playlist" data-playlist-id="${p.id}"
+              class="text-xs text-mute hover:text-red-300">Delete</button>
+          </li>`).join("") || empty("No playlists yet");
+      } catch (e) {
+        state.userDb = false;
+        $("playlists-hint").classList.remove("hidden");
+        $("playlist-list").innerHTML = empty(e.message);
+      }
+    }
+
+    async function openPlaylist(id) {
+      const data = await api(`/api/playlists/${id}`);
+      $("playlist-tracks-title").textContent = data.name || `Playlist ${id}`;
+      const tracks = await api(`/api/playlists/${id}/tracks?limit=100`);
+      rememberTracks(tracks.items);
+      $("playlist-tracks").innerHTML =
+        (tracks.items || []).map((t) => trackRow(t)).join("") || empty("Empty playlist");
+    }
+
+    async function loadLibrary() {
+      await refreshStatus();
+      await loadFavs();
+    }
+
+    async function refreshStatus() {
+      try {
+        const data = await api("/api/library/status");
+        $("library-status").textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        $("library-status").textContent = e.message;
+      }
+    }
+
+    async function loadFavs() {
+      try {
+        const data = await api("/api/favourites?limit=100");
+        state.favIds = new Set((data.items || []).map((t) => t.id));
+        state.userDb = true;
+        rememberTracks(data.items);
+        $("fav-list").innerHTML = (data.items || []).map((t) => trackRow(t)).join("") || empty("No favourites");
+        updateFavButton();
+      } catch {
+        state.userDb = false;
+        $("fav-list").innerHTML = empty("Needs --user-db");
+        updateFavButton();
+      }
+    }
+
+    async function pingStatus() {
+      try {
+        await api("/api/ping");
+        $("status-dot").classList.remove("bg-red-400");
+        $("status-dot").classList.add("bg-copper-400");
+        $("status-label").textContent = "online";
+      } catch {
+        $("status-dot").classList.add("bg-red-400");
+        $("status-dot").classList.remove("bg-copper-400");
+        $("status-label").textContent = "offline — is the server running?";
+      }
+    }
+
+    /* Single delegated click handler — avoids fragile JSON-in-attributes. */
+    document.body.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const trackId = btn.dataset.trackId ? Number(btn.dataset.trackId) : null;
+
+      const run = async () => {
+        switch (action) {
+          case "play":
+            await playTrack(state.trackIndex.get(trackId));
+            break;
+          case "toggle-fav":
+            await toggleFav(trackId);
+            break;
+          case "open-artist": {
+            const id = Number(btn.dataset.artistId);
+            setTab("browse");
+            await openArtist(id);
+            break;
+          }
+          case "open-album": {
+            const id = Number(btn.dataset.albumId);
+            const coverId = btn.dataset.coverId || null;
+            const artistId = btn.dataset.artistId ? Number(btn.dataset.artistId) : null;
+            setTab("browse");
+            await openAlbum(id, coverId, { artistId });
+            break;
+          }
+          case "open-playlist":
+            await openPlaylist(Number(btn.dataset.playlistId));
+            break;
+          case "delete-playlist":
+            await api(`/api/playlists/${btn.dataset.playlistId}`, { method: "DELETE" });
+            await loadPlaylists();
+            break;
+          default:
+            break;
+        }
+      };
+
+      run().catch((err) => toast(err.message || String(err)));
+    });
+
+    /* Wire UI */
+    document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
+    $("search-form").addEventListener("submit", (e) => runSearch(e).catch((err) => toast(err.message)));
+    $("btn-artists-more").addEventListener("click", () => loadArtists().catch((e) => toast(e.message)));
+    $("btn-albums-more").addEventListener("click", () => loadAlbums().catch((e) => toast(e.message)));
+    $("btn-tracks-more").addEventListener("click", () => {
+      const p = state.tracks.albumId
+        ? loadAlbumTracks(false, state.tracks.albumId)
+        : loadAllTracks(false);
+      p.catch((e) => toast(e.message));
+    });
+    document.querySelectorAll(".discover-btn").forEach((b) => {
+      b.addEventListener("click", () => loadDiscover(b.dataset.discover).catch((e) => toast(e.message)));
+    });
+    $("playlist-create").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = $("playlist-name").value.trim();
+      if (!name) return;
+      try {
+        await api("/api/playlists", { method: "POST", body: JSON.stringify({ name }) });
+        $("playlist-name").value = "";
+        loadPlaylists();
+      } catch (err) { toast(err.message); }
+    });
+    $("btn-scan").addEventListener("click", async () => {
+      try {
+        const r = await api("/api/library/scan", { method: "POST" });
+        toast(r.status || "scan started");
+        setTimeout(refreshStatus, 800);
+      } catch (e) { toast(e.message); }
+    });
+    $("btn-scan-force").addEventListener("click", async () => {
+      try {
+        const r = await api("/api/library/scan?force=1", { method: "POST" });
+        toast(r.status || "force scan");
+        setTimeout(refreshStatus, 800);
+      } catch (e) { toast(e.message); }
+    });
+    $("btn-refresh-status").addEventListener("click", () => refreshStatus());
+    $("btn-fav").addEventListener("click", () => {
+      if (state.now) toggleFav(state.now.id);
+    });
+    $("api-base").addEventListener("change", () => {
+      pingStatus();
+      Promise.all([loadArtists(true), loadAlbums(true), loadAllTracks(true), loadFavs()]).catch(() => {});
+    });
+
+    (async function init() {
+      await pingStatus();
+      await loadFavs().catch(() => {});
+      await Promise.all([
+        loadArtists(true),
+        loadAlbums(true),
+        loadAllTracks(true),
+      ]).catch((e) => toast(e.message));
+      setInterval(pingStatus, 15000);
+    })();
+  </script>
+</body>
+</html>

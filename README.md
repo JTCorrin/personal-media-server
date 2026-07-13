@@ -64,6 +64,13 @@ curl http://127.0.0.1:8080/api/tracks | jq
 mpv http://127.0.0.1:8080/stream/1
 ```
 
+### Test playground UI
+
+`tests/fixtures/web/index.html` is a static page (Tailwind CDN) for manual API
+testing. It is not served by the media server — open the file in a browser (or
+any static file host) while the server is running on `http://127.0.0.1:8080`.
+The page defaults to that base URL (editable in the header).
+
 ### Options
 
 ```

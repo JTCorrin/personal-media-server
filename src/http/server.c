@@ -15,6 +15,12 @@ struct http_server {
     bool listening;
 };
 
+/* Allows browser test clients (e.g. tests/fixtures/web/index.html) to call the API. */
+#define CORS_HEADERS                       \
+    "Access-Control-Allow-Origin: *\r\n"   \
+    "Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n" \
+    "Access-Control-Allow-Headers: Content-Type\r\n"
+
 static void copy_mg_str(char *dst, size_t dst_size, const struct mg_str *src)
 {
     size_t n;
@@ -48,6 +54,11 @@ static void on_http_message(struct mg_connection *c, struct mg_http_message *hm,
     copy_mg_str(path, sizeof(path), &hm->uri);
 
     LOG_INFO("http", "%s %s", method, path);
+
+    if (strcmp(method, "OPTIONS") == 0) {
+        mg_http_reply(c, 204, CORS_HEADERS, "");
+        return;
+    }
 
     if (router_match(router, method, path, &match) == 0) {
         match.handler(&match, hm, c);
@@ -126,7 +137,7 @@ void http_server_poll(http_server_t *server, int timeout_ms)
 void http_reply_text(void *res, int status, const char *content_type, const char *body)
 {
     struct mg_connection *c = (struct mg_connection *)res;
-    char headers[128];
+    char headers[256];
     int n;
 
     if (c == NULL) {
@@ -142,9 +153,10 @@ void http_reply_text(void *res, int status, const char *content_type, const char
 
     /* A truncated header would lose its trailing \r\n and corrupt the
      * response, so fall back to a safe default instead. */
-    n = snprintf(headers, sizeof(headers), "Content-Type: %s\r\n", content_type);
+    n = snprintf(headers, sizeof(headers), "Content-Type: %s\r\n" CORS_HEADERS,
+                 content_type);
     if (n < 0 || (size_t)n >= sizeof(headers)) {
-        snprintf(headers, sizeof(headers), "Content-Type: text/plain\r\n");
+        snprintf(headers, sizeof(headers), "Content-Type: text/plain\r\n" CORS_HEADERS);
     }
 
     mg_http_reply(c, status, headers, "%s", body);
@@ -212,7 +224,7 @@ void http_reply_file(void *req, void *res, const char *abs_path, const char *con
     struct mg_connection *c = (struct mg_connection *)res;
     struct mg_http_message *hm = (struct mg_http_message *)req;
     struct mg_http_serve_opts opts;
-    char extra[160];
+    char extra[320];
 
     if (c == NULL || hm == NULL || abs_path == NULL || abs_path[0] == '\0') {
         http_reply_not_found(res);
@@ -221,11 +233,13 @@ void http_reply_file(void *req, void *res, const char *abs_path, const char *con
 
     memset(&opts, 0, sizeof(opts));
     if (content_type != NULL && content_type[0] != '\0') {
-        int n = snprintf(extra, sizeof(extra), "Content-Type: %s\r\n", content_type);
-        /* Only attach the header if it fit; truncation would corrupt it. */
+        int n = snprintf(extra, sizeof(extra), "Content-Type: %s\r\n" CORS_HEADERS,
+                         content_type);
         if (n > 0 && (size_t)n < sizeof(extra)) {
             opts.extra_headers = extra;
         }
+    } else {
+        opts.extra_headers = CORS_HEADERS;
     }
 
     mg_http_serve_file(c, hm, abs_path, &opts);
