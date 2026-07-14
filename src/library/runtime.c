@@ -9,6 +9,7 @@
 #include "media_server/util/log.h"
 #include "media_server/util/path.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -522,36 +523,55 @@ static int atomic_write_file(const char *abs_path, const void *bytes, size_t len
 
     if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d", abs_path, (int)getpid()) >=
         (int)sizeof(tmp_path)) {
+        LOG_ERROR("library", "cover temp path too long: %s", abs_path);
         return -1;
     }
 
     fp = fopen(tmp_path, "wb");
     if (fp == NULL) {
+        LOG_ERROR("library", "fopen(%s): %s", tmp_path, strerror(errno));
         return -1;
     }
+    errno = 0;
     written = fwrite(bytes, 1, len, fp);
     if (written != len) {
+        int saved_errno = errno != 0 ? errno : EIO;
+
         fclose(fp);
         remove(tmp_path);
+        LOG_ERROR("library", "fwrite(%s): %s", tmp_path, strerror(saved_errno));
         return -1;
     }
     if (fflush(fp) != 0) {
+        int saved_errno = errno;
+
         fclose(fp);
         remove(tmp_path);
+        LOG_ERROR("library", "fflush(%s): %s", tmp_path, strerror(saved_errno));
         return -1;
     }
     fd = fileno(fp);
     if (fd >= 0 && fsync(fd) != 0) {
+        int saved_errno = errno;
+
         fclose(fp);
         remove(tmp_path);
+        LOG_ERROR("library", "fsync(%s): %s", tmp_path, strerror(saved_errno));
         return -1;
     }
     if (fclose(fp) != 0) {
+        int saved_errno = errno;
+
         remove(tmp_path);
+        LOG_ERROR("library", "fclose(%s): %s", tmp_path, strerror(saved_errno));
         return -1;
     }
     if (rename(tmp_path, abs_path) != 0) {
+        int saved_errno = errno;
+
         remove(tmp_path);
+        LOG_ERROR("library", "rename(%s, %s): %s", tmp_path, abs_path,
+                  strerror(saved_errno));
         return -1;
     }
     return 0;
@@ -638,8 +658,7 @@ int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
     if (atomic_write_file(abs_path, bytes, len) != 0) {
         catalog_destroy(copy);
         metadata_mutation_abort(ctx);
-        LOG_ERROR("library", "failed to write album cover %s", abs_path);
-        return -1;
+        return LIBRARY_COVER_WRITE_FAILED;
     }
 
     cover_item = catalog_find_path(copy, rel_path);
@@ -649,21 +668,21 @@ int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
             metadata_mutation_abort(ctx);
             LOG_ERROR("library", "failed to add album cover %s to catalog",
                       rel_path);
-            return -1;
+            return LIBRARY_COVER_LINK_FAILED;
         }
         cover_item = catalog_find_path(copy, rel_path);
     }
     if (cover_item == NULL || cover_item->kind != MEDIA_KIND_IMAGE) {
         catalog_destroy(copy);
         metadata_mutation_abort(ctx);
-        return -1;
+        return LIBRARY_COVER_LINK_FAILED;
     }
 
     new_browse = browse_index_build(copy);
     if (new_browse == NULL) {
         catalog_destroy(copy);
         metadata_mutation_abort(ctx);
-        return -1;
+        return LIBRARY_COVER_LINK_FAILED;
     }
     updated_album = browse_album_find_id(new_browse, album_id);
     if (updated_album == NULL || updated_album->cover_id == 0) {
@@ -671,7 +690,7 @@ int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
         catalog_destroy(copy);
         metadata_mutation_abort(ctx);
         LOG_ERROR("library", "failed to link album cover %s", rel_path);
-        return -1;
+        return LIBRARY_COVER_LINK_FAILED;
     }
 
     if (ctx->catalog_db_path != NULL && ctx->catalog_db_path[0] != '\0' &&
@@ -681,7 +700,7 @@ int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
         metadata_mutation_abort(ctx);
         LOG_ERROR("library", "failed to save catalog after cover upload: %s",
                   ctx->catalog_db_path);
-        return -1;
+        return LIBRARY_COVER_CATALOG_SAVE_FAILED;
     }
 
     if (out_rel_path != NULL && out_rel_path_size > 0) {

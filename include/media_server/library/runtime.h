@@ -50,6 +50,9 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
                                  size_t *updated_track_count);
 
 #define LIBRARY_COVER_MAX_BYTES (10u * 1024u * 1024u)
+#define LIBRARY_COVER_WRITE_FAILED 7
+#define LIBRARY_COVER_LINK_FAILED 8
+#define LIBRARY_COVER_CATALOG_SAVE_FAILED 9
 
 /*
  * Write cover.<ext> beside the album's tracks (or their common parent dir for
@@ -65,7 +68,10 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
  *   4  no library_dir
  *   5  no album directory (no owned tracks / empty dirname)
  *   6  ambiguous album directory (owned tracks share no common parent)
- *  -1  write, index, or persistence failure
+ *   7  filesystem write failure
+ *   8  written, but could not link the image to the album
+ *   9  written and linked, but catalog persistence failed
+ *  -1  invalid input or internal update failure
  */
 int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
                             const void *bytes, size_t len, const char *ext,

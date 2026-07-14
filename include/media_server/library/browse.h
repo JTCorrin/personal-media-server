@@ -40,6 +40,7 @@ typedef struct browse_album {
     char path_name[CATALOG_META_MAX];   /* cover matching after tags/overrides */
     char path_artist[CATALOG_META_MAX];
     bool path_group_mixed;
+    char cover_dir[CATALOG_PATH_MAX]; /* common physical parent of album tracks */
 } browse_album_t;
 
 typedef struct browse_track_link {

@@ -2,6 +2,7 @@
 
 #include "media_server/media/kind.h"
 #include "media_server/media/path_meta.h"
+#include "media_server/util/path.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -43,6 +44,54 @@ static browse_album_t *find_album_by_names(browse_index_t *index, const char *ar
         }
     }
     return NULL;
+}
+
+static browse_album_t *find_album_by_cover_dir(browse_index_t *index,
+                                                const char *image_path)
+{
+    browse_album_t *match = NULL;
+    char image_dir[CATALOG_PATH_MAX];
+
+    if (path_dirname(image_dir, sizeof(image_dir), image_path) != 0 ||
+        image_dir[0] == '\0') {
+        return NULL;
+    }
+    for (size_t i = 0; i < index->album_count; i++) {
+        browse_album_t *album = &index->albums[i];
+
+        if (album->cover_dir[0] == '\0' ||
+            strcmp(album->cover_dir, image_dir) != 0) {
+            continue;
+        }
+        if (match != NULL) {
+            return NULL; /* shared physical directory is ambiguous */
+        }
+        match = album;
+    }
+    return match;
+}
+
+static int update_album_cover_dir(browse_album_t *album,
+                                  const catalog_item_t *track)
+{
+    char track_dir[CATALOG_PATH_MAX];
+
+    if (path_dirname(track_dir, sizeof(track_dir), track->path) != 0) {
+        return -1;
+    }
+    if (album->track_count == 0) {
+        memcpy(album->cover_dir, track_dir, strlen(track_dir) + 1);
+    } else if (album->cover_dir[0] != '\0' &&
+               strcmp(album->cover_dir, track_dir) != 0) {
+        char common_dir[CATALOG_PATH_MAX];
+
+        if (path_common_dir(common_dir, sizeof(common_dir), album->cover_dir,
+                            track_dir) != 0) {
+            return -1;
+        }
+        memcpy(album->cover_dir, common_dir, strlen(common_dir) + 1);
+    }
+    return 0;
 }
 
 /* Higher is better: cover > folder > front > other. */
@@ -89,12 +138,15 @@ static void link_album_covers(browse_index_t *index, const catalog_t *catalog)
         int score;
         int best;
 
-        if (item == NULL || item->kind != MEDIA_KIND_IMAGE || item->album[0] == '\0') {
+        if (item == NULL || item->kind != MEDIA_KIND_IMAGE) {
             continue;
         }
 
-        album = find_album_by_names(index, item->artist, item->album);
-        if (album == NULL) {
+        album = find_album_by_cover_dir(index, item->path);
+        if (album == NULL && item->album[0] != '\0') {
+            album = find_album_by_names(index, item->artist, item->album);
+        }
+        if (album == NULL && item->album[0] != '\0') {
             for (size_t j = 0; j < index->album_count; j++) {
                 browse_album_t *candidate = &index->albums[j];
                 if (!candidate->path_group_mixed &&
@@ -303,6 +355,10 @@ browse_index_t *browse_index_build(const catalog_t *catalog)
                 album->path_group_mixed = true;
                 album->path_name[0] = '\0';
                 album->path_artist[0] = '\0';
+            }
+            if (update_album_cover_dir(album, item) != 0) {
+                browse_index_destroy(index);
+                return NULL;
             }
             album->track_count++;
             index->track_links[index->track_link_count].track_id = item->id;

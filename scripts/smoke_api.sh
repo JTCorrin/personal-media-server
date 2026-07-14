@@ -213,6 +213,12 @@ if ! printf '%s' "${cover_put_body}" | grep -q 'Artist/Album/cover.jpg'; then
   exit 1
 fi
 cover_put_id="$(printf '%s' "${cover_put_body}" | sed -n 's/.*"cover_id":\([0-9]*\).*/\1/p')"
+album_after_cover="$(curl -sf "${LISTEN}/api/albums/${album_id}")"
+if ! printf '%s' "${album_after_cover}" |
+  grep -Fq "\"cover_id\":${cover_put_id}"; then
+  echo "FAIL album did not expose uploaded cover id: ${album_after_cover}" >&2
+  exit 1
+fi
 served="$(curl -sf "${LISTEN}/cover/${cover_put_id}")"
 if ! printf '%s' "${served}" | grep -q 'COVERPUT'; then
   echo "FAIL /cover/${cover_put_id} after PUT did not contain new bytes" >&2

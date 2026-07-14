@@ -290,8 +290,20 @@ void handle_album_cover_put(const router_match_t *match, void *req, void *res)
         http_reply_json(res, 400, "{\"error\":\"ambiguous_album_dir\"}");
         return;
     }
-    if (rc != 0) {
+    if (rc == LIBRARY_COVER_WRITE_FAILED) {
         http_reply_json(res, 500, "{\"error\":\"write_failed\"}");
+        return;
+    }
+    if (rc == LIBRARY_COVER_LINK_FAILED) {
+        http_reply_json(res, 500, "{\"error\":\"cover_link_failed\"}");
+        return;
+    }
+    if (rc == LIBRARY_COVER_CATALOG_SAVE_FAILED) {
+        http_reply_json(res, 500, "{\"error\":\"catalog_save_failed\"}");
+        return;
+    }
+    if (rc != 0) {
+        http_reply_json(res, 500, "{\"error\":\"cover_update_failed\"}");
         return;
     }
 

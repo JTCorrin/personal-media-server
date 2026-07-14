@@ -214,14 +214,18 @@ album IDs.
 `PUT /api/albums/:id/cover` accepts raw image bytes with
 `Content-Type: image/jpeg`, `image/png`, or `image/webp` (max 10 MiB). The
 server writes `cover.<ext>` next to the album's tracks (never accepts a client
-path) and updates the catalog immediately without a full library rescan. For
-multi-disc layouts whose tracks live under a shared parent (e.g.
+path) and updates the catalog immediately without a full library rescan. Covers
+are linked by their unique physical album directory, so both one-level layouts
+(`Artist-Album-(2025)/track.flac`) and conventional `Artist/Album` layouts work.
+For multi-disc layouts whose tracks live under a shared parent (e.g.
 `Artist/Album/CD1` and `Artist/Album/CD2`), the cover is written in that common
 parent (`Artist/Album/cover.jpg`). If owned tracks share no common directory,
 the response is `400 {"error":"ambiguous_album_dir"}`. A successful response is
 `200 {"ok":true,"path":"Artist/Album/cover.jpg","cover_id":123}`; the returned
-id can be used at `/cover/123` immediately. This endpoint writes into
-`--library-dir`; like the rest of the API there is no authentication.
+id can be used at `/cover/123` immediately. Filesystem, relationship, and
+catalog-persistence failures return `write_failed`, `cover_link_failed`, and
+`catalog_save_failed` respectively. This endpoint writes into `--library-dir`;
+like the rest of the API there is no authentication.
 
 Overrides have precedence over embedded tags and filename/path metadata. With
 `--catalog-db`, they
@@ -234,8 +238,9 @@ Catalog item IDs are assigned during the scan starting at 1 and are reused by
 relative path when `--catalog-db` is set (stable across restarts and rescans).
 Artist and album IDs are synthetic (discovery order) and not persisted.
 
-Album JSON includes `cover_id` (catalog image id, or `null`) matched by
-artist/album path meta, preferring `cover.*` / `folder.*` / `front.*`.
+Album JSON includes `cover_id` (catalog image id, or `null`) matched first by a
+unique physical album directory and then by artist/album path metadata,
+preferring `cover.*` / `folder.*` / `front.*`.
 Track JSON exposes that same image id as `cover_id`; its `album_id` is the
 current synthetic album id and must be refetched after metadata regrouping.
 

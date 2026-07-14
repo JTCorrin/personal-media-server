@@ -231,7 +231,11 @@ parent for multi-disc folders), indexes it without a full scan, and returns
 `200 {"ok":true,"path":"...","cover_id":123}`. Use the returned id at
 `/cover/123` immediately; no scan polling is needed. Returns
 `400 {"error":"ambiguous_album_dir"}` when tracks share no common parent
-directory. No auth — anyone who can reach the server can write into the library.
+directory. One-level album folders are supported through physical-directory
+matching. Server failures distinguish filesystem writes (`write_failed`),
+album relationship updates (`cover_link_failed`), and catalog persistence
+(`catalog_save_failed`). No auth — anyone who can reach the server can write
+into the library.
 
 ---
 

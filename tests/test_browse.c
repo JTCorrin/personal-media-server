@@ -271,6 +271,82 @@ void test_browse_keeps_path_cover_when_tags_define_album(void)
     TEST_ASSERT_EQUAL_UINT(2, album->cover_id);
 }
 
+void test_browse_links_cover_in_one_level_tagged_album_dir(void)
+{
+    media_metadata_t metadata = {0};
+    const browse_album_t *album;
+
+    strcpy(metadata.artist, "Durand Jones & The Indications");
+    strcpy(metadata.album, "Flowers");
+    strcpy(metadata.title, "I Need The Answer");
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(
+               catalog, MEDIA_KIND_AUDIO,
+               "Durand Jones & The Indications-Flowers-(2025)/04.flac",
+               &metadata));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE,
+                       "Durand Jones & The Indications-Flowers-(2025)/cover.jpg"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_STRING("Flowers", album->name);
+    TEST_ASSERT_EQUAL_UINT(2, album->cover_id);
+}
+
+void test_browse_links_multi_disc_cover_from_common_parent(void)
+{
+    media_metadata_t metadata = {0};
+    const browse_album_t *album;
+
+    strcpy(metadata.artist, "Artist");
+    strcpy(metadata.album, "Album");
+    strcpy(metadata.title, "Track");
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(catalog, MEDIA_KIND_AUDIO,
+                                "Artist-Album/CD1/track01.flac", &metadata));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(catalog, MEDIA_KIND_AUDIO,
+                                "Artist-Album/CD2/track02.flac", &metadata));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE, "Artist-Album/cover.jpg"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+    album = browse_album_get(index, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(3, album->cover_id);
+}
+
+void test_browse_does_not_directory_link_shared_album_dir(void)
+{
+    media_metadata_t first = {0};
+    media_metadata_t second = {0};
+
+    strcpy(first.artist, "Artist");
+    strcpy(first.album, "First");
+    strcpy(first.title, "One");
+    strcpy(second.artist, "Artist");
+    strcpy(second.album, "Second");
+    strcpy(second.title, "Two");
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(catalog, MEDIA_KIND_AUDIO, "Shared/one.flac",
+                                &first));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(catalog, MEDIA_KIND_AUDIO, "Shared/two.flac",
+                                &second));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE, "Shared/cover.jpg"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+    TEST_ASSERT_EQUAL_UINT(2, browse_album_count(index));
+    TEST_ASSERT_EQUAL_UINT(0, browse_album_get(index, 0)->cover_id);
+    TEST_ASSERT_EQUAL_UINT(0, browse_album_get(index, 1)->cover_id);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -285,5 +361,8 @@ int main(void)
     RUN_TEST(test_browse_aggregates_common_album_metadata);
     RUN_TEST(test_browse_keeps_path_cover_after_album_override);
     RUN_TEST(test_browse_keeps_path_cover_when_tags_define_album);
+    RUN_TEST(test_browse_links_cover_in_one_level_tagged_album_dir);
+    RUN_TEST(test_browse_links_multi_disc_cover_from_common_parent);
+    RUN_TEST(test_browse_does_not_directory_link_shared_album_dir);
     return UNITY_END();
 }
