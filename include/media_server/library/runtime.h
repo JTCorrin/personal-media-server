@@ -52,7 +52,8 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
 #define LIBRARY_COVER_MAX_BYTES (10u * 1024u * 1024u)
 
 /*
- * Write cover.<ext> beside the album's tracks and start a background rescan.
+ * Write cover.<ext> beside the album's tracks (or their common parent dir for
+ * multi-disc layouts) and start a background rescan.
  * ext is without a leading dot (jpg/png/webp). out_rel_path receives the
  * relative library path (e.g. "Artist/Album/cover.jpg"); may be NULL.
  *
@@ -63,7 +64,7 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
  *   3  album not found
  *   4  no library_dir
  *   5  no album directory (no owned tracks / empty dirname)
- *   6  ambiguous album directory (tracks in different dirs)
+ *   6  ambiguous album directory (owned tracks share no common parent)
  *  -1  write or scan-start failure
  */
 int library_album_cover_put(app_context_t *ctx, uint32_t album_id,

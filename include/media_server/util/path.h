@@ -27,6 +27,13 @@ const char *path_basename(const char *path);
 int path_dirname(char *out, size_t out_size, const char *path);
 
 /*
+ * Longest common parent directory of two relative paths (slash-aligned).
+ * Writes "" when there is no shared directory segment (e.g. "A/X" vs "B/Y").
+ * No trailing slash. Returns 0 on success, -1 on bad args or overflow.
+ */
+int path_common_dir(char *out, size_t out_size, const char *a, const char *b);
+
+/*
  * Pointer to the extension including the dot (e.g. ".mp3"), or NULL if none.
  * Only looks at the basename (dots in directories are ignored).
  */

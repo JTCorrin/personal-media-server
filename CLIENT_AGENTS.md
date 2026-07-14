@@ -217,9 +217,11 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 `{"updated_track_count":N}`. Refetch albums afterward.
 
 `PUT /api/albums/:id/cover` — raw body with `Content-Type: image/jpeg|png|webp`
-(max 10 MiB). Writes `cover.<ext>` beside the album tracks and returns
+(max 10 MiB). Writes `cover.<ext>` beside the album tracks (or in the common
+parent for multi-disc folders) and returns
 `202 {"ok":true,"path":"...","scan":"started"}`. Poll `/api/library/status`,
-then refetch the album for `cover_id`. No auth — anyone who can reach the
+then refetch the album for `cover_id`. Returns `400 {"error":"ambiguous_album_dir"}`
+when tracks share no common parent directory. No auth — anyone who can reach the
 server can write into the library.
 
 ---

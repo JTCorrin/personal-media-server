@@ -456,7 +456,7 @@ static int resolve_album_cover_dir(app_context_t *ctx, uint32_t album_id,
 {
     const browse_album_t *album;
     catalog_t *catalog;
-    char first_dir[CATALOG_PATH_MAX];
+    char common_dir[CATALOG_PATH_MAX];
     bool have_dir = false;
     size_t count;
 
@@ -467,7 +467,7 @@ static int resolve_album_cover_dir(app_context_t *ctx, uint32_t album_id,
 
     catalog = ctx->catalog;
     count = catalog_count(catalog);
-    first_dir[0] = '\0';
+    common_dir[0] = '\0';
 
     for (size_t i = 0; i < count; i++) {
         const catalog_item_t *item = catalog_get(catalog, i);
@@ -484,23 +484,32 @@ static int resolve_album_cover_dir(app_context_t *ctx, uint32_t album_id,
             return 5;
         }
         if (!have_dir) {
-            if (strlen(dir) + 1 > sizeof(first_dir)) {
+            if (strlen(dir) + 1 > sizeof(common_dir)) {
                 return -1;
             }
-            memcpy(first_dir, dir, strlen(dir) + 1);
+            memcpy(common_dir, dir, strlen(dir) + 1);
             have_dir = true;
-        } else if (strcmp(first_dir, dir) != 0) {
-            return 6;
+        } else if (strcmp(common_dir, dir) != 0) {
+            char next_common[CATALOG_PATH_MAX];
+
+            if (path_common_dir(next_common, sizeof(next_common), common_dir,
+                                dir) != 0) {
+                return -1;
+            }
+            if (next_common[0] == '\0') {
+                return 6;
+            }
+            memcpy(common_dir, next_common, strlen(next_common) + 1);
         }
     }
 
     if (!have_dir) {
         return 5;
     }
-    if (strlen(first_dir) + 1 > dir_out_size) {
+    if (strlen(common_dir) + 1 > dir_out_size) {
         return -1;
     }
-    memcpy(dir_out, first_dir, strlen(first_dir) + 1);
+    memcpy(dir_out, common_dir, strlen(common_dir) + 1);
     return 0;
 }
 

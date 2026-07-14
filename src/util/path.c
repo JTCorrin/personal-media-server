@@ -86,6 +86,47 @@ int path_dirname(char *out, size_t out_size, const char *path)
     return 0;
 }
 
+int path_common_dir(char *out, size_t out_size, const char *a, const char *b)
+{
+    size_t i = 0;
+
+    if (out == NULL || out_size == 0 || a == NULL || b == NULL) {
+        return -1;
+    }
+
+    while (a[i] != '\0' && a[i] == b[i]) {
+        i++;
+    }
+
+    if (a[i] != '\0' && b[i] != '\0') {
+        /* Mismatch mid-path: rewind to end of last shared segment. */
+        while (i > 0 && a[i - 1] != '/') {
+            i--;
+        }
+        if (i > 0) {
+            i--; /* drop the trailing '/' */
+        }
+    } else if (a[i] != '\0' || b[i] != '\0') {
+        /* One path is a prefix of the other. */
+        const char *longer = (a[i] != '\0') ? a : b;
+        if (longer[i] != '/') {
+            while (i > 0 && a[i - 1] != '/') {
+                i--;
+            }
+            if (i > 0) {
+                i--;
+            }
+        }
+    }
+
+    if (i + 1 > out_size) {
+        return -1;
+    }
+    memcpy(out, a, i);
+    out[i] = '\0';
+    return 0;
+}
+
 const char *path_extension(const char *path)
 {
     const char *base;

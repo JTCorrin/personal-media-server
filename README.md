@@ -208,7 +208,11 @@ album IDs.
 `PUT /api/albums/:id/cover` accepts raw image bytes with
 `Content-Type: image/jpeg`, `image/png`, or `image/webp` (max 10 MiB). The
 server writes `cover.<ext>` next to the album's tracks (never accepts a client
-path), then starts a background library rescan. Response is
+path), then starts a background library rescan. For multi-disc layouts whose
+tracks live under a shared parent (e.g. `Artist/Album/CD1` and
+`Artist/Album/CD2`), the cover is written in that common parent
+(`Artist/Album/cover.jpg`). If owned tracks share no common directory,
+the response is `400 {"error":"ambiguous_album_dir"}`. Response is
 `202 {"ok":true,"path":"Artist/Album/cover.jpg","scan":"started"}`. Poll
 `GET /api/library/status` until `scanning` is false, then refetch the album for
 an updated `cover_id`. This endpoint writes into `--library-dir`; like the rest
