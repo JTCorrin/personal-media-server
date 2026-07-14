@@ -129,7 +129,7 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/albums`             | Albums (paginated)                             |
 | GET    | `/api/albums/:id`         | One album                                      |
 | PATCH  | `/api/albums/:id`         | Override metadata for every track in album     |
-| PUT    | `/api/albums/:id/cover`   | Upload cover image (raw body); starts rescan   |
+| PUT    | `/api/albums/:id/cover`   | Upload and immediately index a cover image     |
 | GET    | `/api/albums/:id/tracks`  | Tracks on an album (paginated)                 |
 | GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
 | GET    | `/api/library/status`     | Scan status and catalog counts                 |
@@ -208,15 +208,14 @@ album IDs.
 `PUT /api/albums/:id/cover` accepts raw image bytes with
 `Content-Type: image/jpeg`, `image/png`, or `image/webp` (max 10 MiB). The
 server writes `cover.<ext>` next to the album's tracks (never accepts a client
-path), then starts a background library rescan. For multi-disc layouts whose
-tracks live under a shared parent (e.g. `Artist/Album/CD1` and
-`Artist/Album/CD2`), the cover is written in that common parent
-(`Artist/Album/cover.jpg`). If owned tracks share no common directory,
-the response is `400 {"error":"ambiguous_album_dir"}`. Response is
-`202 {"ok":true,"path":"Artist/Album/cover.jpg","scan":"started"}`. Poll
-`GET /api/library/status` until `scanning` is false, then refetch the album for
-an updated `cover_id`. This endpoint writes into `--library-dir`; like the rest
-of the API there is no authentication.
+path) and updates the catalog immediately without a full library rescan. For
+multi-disc layouts whose tracks live under a shared parent (e.g.
+`Artist/Album/CD1` and `Artist/Album/CD2`), the cover is written in that common
+parent (`Artist/Album/cover.jpg`). If owned tracks share no common directory,
+the response is `400 {"error":"ambiguous_album_dir"}`. A successful response is
+`200 {"ok":true,"path":"Artist/Album/cover.jpg","cover_id":123}`; the returned
+id can be used at `/cover/123` immediately. This endpoint writes into
+`--library-dir`; like the rest of the API there is no authentication.
 
 Overrides have precedence over embedded tags and filename/path metadata. With
 `--catalog-db`, they

@@ -559,15 +559,19 @@ static int atomic_write_file(const char *abs_path, const void *bytes, size_t len
 
 int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
                             const void *bytes, size_t len, const char *ext,
-                            char *out_rel_path, size_t out_rel_path_size)
+                            char *out_rel_path, size_t out_rel_path_size,
+                            uint32_t *out_cover_id)
 {
     char rel_dir[CATALOG_PATH_MAX];
     char rel_path[CATALOG_PATH_MAX];
     char abs_path[CATALOG_PATH_MAX * 2];
     char abs_dir[CATALOG_PATH_MAX * 2];
+    catalog_t *copy = NULL;
+    browse_index_t *new_browse = NULL;
+    const catalog_item_t *cover_item;
+    const browse_album_t *updated_album;
     struct stat st;
     int rc;
-    int scan_rc;
 
     if (ctx == NULL || bytes == NULL || ext == NULL || ext[0] == '\0' ||
         (ext[0] == '.' && ext[1] == '\0')) {
@@ -603,6 +607,11 @@ int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
         pthread_mutex_unlock(&ctx->mu);
         return -1;
     }
+    if (out_rel_path != NULL &&
+        (out_rel_path_size == 0 || strlen(rel_path) + 1 > out_rel_path_size)) {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
     if (media_resolve_path(ctx->library_dir, rel_path, abs_path, sizeof(abs_path)) !=
         0) {
         pthread_mutex_unlock(&ctx->mu);
@@ -618,32 +627,74 @@ int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
     }
 
     ctx->metadata_mutating = true;
+    copy = catalog_clone(ctx->catalog);
+    if (copy == NULL) {
+        ctx->metadata_mutating = false;
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
     pthread_mutex_unlock(&ctx->mu);
 
     if (atomic_write_file(abs_path, bytes, len) != 0) {
+        catalog_destroy(copy);
         metadata_mutation_abort(ctx);
         LOG_ERROR("library", "failed to write album cover %s", abs_path);
         return -1;
     }
 
-    metadata_mutation_abort(ctx);
-
-    if (out_rel_path != NULL && out_rel_path_size > 0) {
-        if (strlen(rel_path) + 1 > out_rel_path_size) {
+    cover_item = catalog_find_path(copy, rel_path);
+    if (cover_item == NULL) {
+        if (catalog_add(copy, MEDIA_KIND_IMAGE, rel_path) != 0) {
+            catalog_destroy(copy);
+            metadata_mutation_abort(ctx);
+            LOG_ERROR("library", "failed to add album cover %s to catalog",
+                      rel_path);
             return -1;
         }
-        memcpy(out_rel_path, rel_path, strlen(rel_path) + 1);
+        cover_item = catalog_find_path(copy, rel_path);
+    }
+    if (cover_item == NULL || cover_item->kind != MEDIA_KIND_IMAGE) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
     }
 
-    LOG_INFO("library", "wrote album cover %s; requesting rescan", rel_path);
-    scan_rc = library_scan_request(ctx, false);
-    if (scan_rc == 0 || scan_rc == 2) {
-        return scan_rc;
+    new_browse = browse_index_build(copy);
+    if (new_browse == NULL) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return -1;
     }
-    if (scan_rc == 1) {
-        return 1;
+    updated_album = browse_album_find_id(new_browse, album_id);
+    if (updated_album == NULL || updated_album->cover_id == 0) {
+        browse_index_destroy(new_browse);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        LOG_ERROR("library", "failed to link album cover %s", rel_path);
+        return -1;
     }
-    return -1;
+
+    if (ctx->catalog_db_path != NULL && ctx->catalog_db_path[0] != '\0' &&
+        catalog_store_save(ctx->catalog_db_path, ctx->library_dir, copy) != 0) {
+        browse_index_destroy(new_browse);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        LOG_ERROR("library", "failed to save catalog after cover upload: %s",
+                  ctx->catalog_db_path);
+        return -1;
+    }
+
+    if (out_rel_path != NULL && out_rel_path_size > 0) {
+        memcpy(out_rel_path, rel_path, strlen(rel_path) + 1);
+    }
+    if (out_cover_id != NULL) {
+        *out_cover_id = updated_album->cover_id;
+    }
+
+    LOG_INFO("library", "wrote and indexed album cover %s (id %u)", rel_path,
+             updated_album->cover_id);
+    metadata_mutation_finish(ctx, copy, new_browse);
+    return 0;
 }
 
 void library_status_get(app_context_t *ctx, library_status_t *out)

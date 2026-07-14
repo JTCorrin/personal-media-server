@@ -243,9 +243,9 @@ void handle_album_cover_put(const router_match_t *match, void *req, void *res)
     const char *body = NULL;
     size_t body_len = 0;
     string_buf_t sb;
+    uint32_t cover_id = 0;
     int hdr_rc;
     int rc;
-    const char *scan_status;
 
     if (api_parse_id_param(match, &id) != 0) {
         http_reply_not_found(res);
@@ -269,7 +269,7 @@ void handle_album_cover_put(const router_match_t *match, void *req, void *res)
     }
 
     rc = library_album_cover_put(ctx, id, body, body_len, ext, rel_path,
-                                 sizeof(rel_path));
+                                 sizeof(rel_path), &cover_id);
     if (rc == 1) {
         http_reply_json(res, 409, "{\"error\":\"library_busy\"}");
         return;
@@ -290,25 +290,23 @@ void handle_album_cover_put(const router_match_t *match, void *req, void *res)
         http_reply_json(res, 400, "{\"error\":\"ambiguous_album_dir\"}");
         return;
     }
-    if (rc != 0 && rc != 2) {
+    if (rc != 0) {
         http_reply_json(res, 500, "{\"error\":\"write_failed\"}");
         return;
     }
 
-    scan_status = (rc == 2) ? "restarted" : "started";
     if (string_buf_init(&sb, 160) != 0) {
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
     if (string_buf_append(&sb, "{\"ok\":true,\"path\":") != 0 ||
         string_buf_append_json_string(&sb, rel_path) != 0 ||
-        string_buf_append(&sb, ",\"scan\":") != 0 ||
-        string_buf_append_json_string(&sb, scan_status) != 0 ||
+        string_buf_append_fmt(&sb, ",\"cover_id\":%u", cover_id) != 0 ||
         string_buf_append_char(&sb, '}') != 0) {
         string_buf_free(&sb);
         http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
         return;
     }
-    http_reply_json(res, 202, string_buf_cstr(&sb));
+    http_reply_json(res, 200, string_buf_cstr(&sb));
     string_buf_free(&sb);
 }

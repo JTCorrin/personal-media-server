@@ -155,7 +155,7 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 | GET | `/api/albums` | Paginated albums |
 | GET | `/api/albums/:id` | One album |
 | PATCH | `/api/albums/:id` | Override all tracks in album |
-| PUT | `/api/albums/:id/cover` | Upload cover (raw image body); starts rescan |
+| PUT | `/api/albums/:id/cover` | Upload and immediately index a cover |
 | GET | `/api/albums/:id/tracks` | Tracks on album |
 
 ### Search / discover
@@ -218,11 +218,11 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 
 `PUT /api/albums/:id/cover` — raw body with `Content-Type: image/jpeg|png|webp`
 (max 10 MiB). Writes `cover.<ext>` beside the album tracks (or in the common
-parent for multi-disc folders) and returns
-`202 {"ok":true,"path":"...","scan":"started"}`. Poll `/api/library/status`,
-then refetch the album for `cover_id`. Returns `400 {"error":"ambiguous_album_dir"}`
-when tracks share no common parent directory. No auth — anyone who can reach the
-server can write into the library.
+parent for multi-disc folders), indexes it without a full scan, and returns
+`200 {"ok":true,"path":"...","cover_id":123}`. Use the returned id at
+`/cover/123` immediately; no scan polling is needed. Returns
+`400 {"error":"ambiguous_album_dir"}` when tracks share no common parent
+directory. No auth — anyone who can reach the server can write into the library.
 
 ---
 

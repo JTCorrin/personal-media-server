@@ -53,23 +53,24 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
 
 /*
  * Write cover.<ext> beside the album's tracks (or their common parent dir for
- * multi-disc layouts) and start a background rescan.
+ * multi-disc layouts), then add it to the in-memory catalog immediately.
  * ext is without a leading dot (jpg/png/webp). out_rel_path receives the
  * relative library path (e.g. "Artist/Album/cover.jpg"); may be NULL.
+ * out_cover_id receives the catalog image id; may be NULL.
  *
  * Returns:
- *   0  written; scan started
- *   2  written; scan restarted after cancel (force path; rare)
+ *   0  written and indexed
  *   1  library busy (scan or metadata mutation in progress)
  *   3  album not found
  *   4  no library_dir
  *   5  no album directory (no owned tracks / empty dirname)
  *   6  ambiguous album directory (owned tracks share no common parent)
- *  -1  write or scan-start failure
+ *  -1  write, index, or persistence failure
  */
 int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
                             const void *bytes, size_t len, const char *ext,
-                            char *out_rel_path, size_t out_rel_path_size);
+                            char *out_rel_path, size_t out_rel_path_size,
+                            uint32_t *out_cover_id);
 
 void library_status_get(app_context_t *ctx, library_status_t *out);
 

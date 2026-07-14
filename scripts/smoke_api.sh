@@ -182,28 +182,22 @@ cover_put="$(printf '\xff\xd8\xff\xd9COVERPUT' | curl -s -w '\n%{http_code}' -X 
   "${LISTEN}/api/albums/${album_id}/cover")"
 cover_put_body="$(printf '%s' "${cover_put}" | sed '$d')"
 cover_put_code="$(printf '%s' "${cover_put}" | tail -n1)"
-if [[ "${cover_put_code}" != "202" ]]; then
+if [[ "${cover_put_code}" != "200" ]]; then
   echo "FAIL PUT /api/albums/${album_id}/cover status: ${cover_put_code} ${cover_put_body}" >&2
   exit 1
 fi
-if ! printf '%s' "${cover_put_body}" | grep -q '"scan":"started"'; then
-  echo "FAIL cover PUT missing scan started: ${cover_put_body}" >&2
+if ! printf '%s' "${cover_put_body}" | grep -qE '"cover_id":[1-9][0-9]*'; then
+  echo "FAIL cover PUT missing cover_id: ${cover_put_body}" >&2
   exit 1
 fi
 if ! printf '%s' "${cover_put_body}" | grep -q 'Artist/Album/cover.jpg'; then
   echo "FAIL cover PUT missing path: ${cover_put_body}" >&2
   exit 1
 fi
-for _ in $(seq 1 100); do
-  status="$(curl -sf "${LISTEN}/api/library/status")"
-  if printf '%s' "${status}" | grep -q '"scanning":false'; then
-    break
-  fi
-  sleep 0.1
-done
-served="$(curl -sf "${LISTEN}/cover/${cover_id}")"
+cover_put_id="$(printf '%s' "${cover_put_body}" | sed -n 's/.*"cover_id":\([0-9]*\).*/\1/p')"
+served="$(curl -sf "${LISTEN}/cover/${cover_put_id}")"
 if ! printf '%s' "${served}" | grep -q 'COVERPUT'; then
-  echo "FAIL /cover/${cover_id} after PUT did not contain new bytes" >&2
+  echo "FAIL /cover/${cover_put_id} after PUT did not contain new bytes" >&2
   exit 1
 fi
 echo "OK PUT /api/albums/${album_id}/cover"
