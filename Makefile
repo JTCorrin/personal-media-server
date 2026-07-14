@@ -51,7 +51,7 @@ TEST_SRCS := $(wildcard tests/test_*.c)
 
 # Suites included in `make test`. Add a name here when its UNIT_*_SRCS and tests are ready.
 TEST_UNITS := log router routes config path media_kind metadata catalog scanner media_file \
-	string_buf path_meta browse str params search runtime catalog_store json_body \
+	string_buf path_meta browse catalog_json str params search runtime catalog_store json_body \
 	user_store
 TEST_BINS := $(addprefix build/tests/test_,$(TEST_UNITS))
 
@@ -83,6 +83,11 @@ UNIT_catalog_store_SRCS := src/library/catalog_store.c src/library/catalog.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_browse_SRCS := src/library/browse.c src/library/catalog.c src/media/kind.c \
 	src/media/path_meta.c src/util/path.c
+UNIT_catalog_json_SRCS := src/api/catalog_json.c src/api/page_json.c src/api/params.c \
+	src/http/server.c src/http/router.c $(MONGOOSE_OBJ) src/library/catalog.c \
+	src/library/browse.c src/media/kind.c src/media/path_meta.c src/util/path.c \
+	src/util/string_buf.c src/util/log.c src/util/log_sink_file.c \
+	src/util/log_sink_sqlite.c
 UNIT_search_SRCS := src/library/search.c src/library/catalog.c src/library/browse.c \
 	src/media/kind.c src/media/path_meta.c src/util/path.c src/util/str.c
 UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.c \
@@ -90,7 +95,7 @@ UNIT_scanner_SRCS := src/library/scanner.c src/library/catalog.c src/media/kind.
 	src/util/log_sink_sqlite.c
 UNIT_runtime_SRCS := src/library/runtime.c src/library/scanner.c src/library/catalog.c \
 	src/library/browse.c src/library/catalog_store.c src/media/kind.c \
-	src/media/metadata.c src/media/path_meta.c src/util/path.c \
+	src/media/metadata.c src/media/path_meta.c src/media/file.c src/util/path.c \
 	src/util/log.c src/util/log_sink_file.c src/util/log_sink_sqlite.c
 UNIT_string_buf_SRCS := src/util/string_buf.c
 UNIT_str_SRCS := src/util/str.c

@@ -42,6 +42,49 @@ void test_path_basename(void)
     TEST_ASSERT_EQUAL_STRING("song.mp3", path_basename("song.mp3"));
 }
 
+void test_path_dirname(void)
+{
+    char out[64];
+
+    TEST_ASSERT_EQUAL_INT(0, path_dirname(out, sizeof(out), "Artist/Album/track.mp3"));
+    TEST_ASSERT_EQUAL_STRING("Artist/Album", out);
+    TEST_ASSERT_EQUAL_INT(0, path_dirname(out, sizeof(out), "track.mp3"));
+    TEST_ASSERT_EQUAL_STRING("", out);
+    TEST_ASSERT_EQUAL_INT(-1, path_dirname(out, 4, "Artist/Album/track.mp3"));
+}
+
+void test_path_common_dir(void)
+{
+    char out[64];
+
+    TEST_ASSERT_EQUAL_INT(
+        0, path_common_dir(out, sizeof(out), "Artist/Album/CD1",
+                           "Artist/Album/CD2"));
+    TEST_ASSERT_EQUAL_STRING("Artist/Album", out);
+
+    TEST_ASSERT_EQUAL_INT(
+        0, path_common_dir(out, sizeof(out), "Artist/Album", "Artist/Album"));
+    TEST_ASSERT_EQUAL_STRING("Artist/Album", out);
+
+    TEST_ASSERT_EQUAL_INT(
+        0, path_common_dir(out, sizeof(out), "Artist/Album",
+                           "Artist/Album/CD1"));
+    TEST_ASSERT_EQUAL_STRING("Artist/Album", out);
+
+    TEST_ASSERT_EQUAL_INT(
+        0, path_common_dir(out, sizeof(out), "Artist/Album",
+                           "Artist/AlbumExtra"));
+    TEST_ASSERT_EQUAL_STRING("Artist", out);
+
+    TEST_ASSERT_EQUAL_INT(0, path_common_dir(out, sizeof(out), "A/X", "B/Y"));
+    TEST_ASSERT_EQUAL_STRING("", out);
+
+    TEST_ASSERT_EQUAL_INT(-1, path_common_dir(out, 4, "Artist/Album/CD1",
+                                              "Artist/Album/CD2"));
+    TEST_ASSERT_EQUAL_INT(-1, path_common_dir(NULL, 8, "a", "b"));
+    TEST_ASSERT_EQUAL_INT(-1, path_common_dir(out, sizeof(out), NULL, "b"));
+}
+
 void test_path_extension(void)
 {
     TEST_ASSERT_EQUAL_STRING(".mp3", path_extension("/music/song.mp3"));
@@ -66,6 +109,8 @@ int main(void)
     RUN_TEST(test_path_join_absolute_name_wins);
     RUN_TEST(test_path_join_rejects_overflow);
     RUN_TEST(test_path_basename);
+    RUN_TEST(test_path_dirname);
+    RUN_TEST(test_path_common_dir);
     RUN_TEST(test_path_extension);
     RUN_TEST(test_path_has_extension);
     return UNITY_END();

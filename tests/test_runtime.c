@@ -7,7 +7,9 @@
 #include "media_server/library/scanner.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -235,6 +237,485 @@ void test_metadata_patch_persists_with_catalog_db(void)
     unlink(path);
 }
 
+static int copy_file(const char *src, const char *dst)
+{
+    FILE *in;
+    FILE *out;
+    char buf[4096];
+    size_t n;
+
+    in = fopen(src, "rb");
+    if (in == NULL) {
+        return -1;
+    }
+    out = fopen(dst, "wb");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in);
+            fclose(out);
+            return -1;
+        }
+    }
+    fclose(in);
+    fclose(out);
+    return 0;
+}
+
+void test_album_cover_put_writes_and_indexes(void)
+{
+    char root[] = "/tmp/media_server_cover_XXXXXX";
+    char album_dir[512];
+    char track_src[512];
+    char track_dst[512];
+    char rel_path[256];
+    char cover_path[512];
+    char catalog_db[128];
+    char marker[] = "COVERTEST";
+    app_context_t local = {0};
+    catalog_t *local_catalog;
+    browse_index_t *local_browse;
+    catalog_t *loaded;
+    library_status_t st;
+    const browse_album_t *album;
+    const catalog_item_t *cover;
+    uint32_t cover_id = 0;
+    uint32_t repeated_cover_id = 0;
+    FILE *fp;
+    char read_buf[32];
+    int rc;
+
+    TEST_ASSERT_NOT_NULL(mkdtemp(root));
+    TEST_ASSERT_TRUE(snprintf(album_dir, sizeof(album_dir), "%s/Artist/Album", root) <
+                     (int)sizeof(album_dir));
+    {
+        char artist_dir[512];
+        TEST_ASSERT_TRUE(snprintf(artist_dir, sizeof(artist_dir), "%s/Artist", root) <
+                         (int)sizeof(artist_dir));
+        TEST_ASSERT_EQUAL_INT(0, mkdir(artist_dir, 0755));
+        TEST_ASSERT_EQUAL_INT(0, mkdir(album_dir, 0755));
+    }
+    TEST_ASSERT_TRUE(
+        snprintf(track_src, sizeof(track_src),
+                 "tests/fixtures/library/Artist/Album/track01.mp3") <
+        (int)sizeof(track_src));
+    TEST_ASSERT_TRUE(snprintf(track_dst, sizeof(track_dst), "%s/track01.mp3",
+                              album_dir) < (int)sizeof(track_dst));
+    TEST_ASSERT_EQUAL_INT(0, copy_file(track_src, track_dst));
+
+    local_catalog = catalog_create();
+    TEST_ASSERT_NOT_NULL(local_catalog);
+    TEST_ASSERT_EQUAL_INT(0, scanner_scan(root, local_catalog));
+    local_browse = browse_index_build(local_catalog);
+    TEST_ASSERT_NOT_NULL(local_browse);
+    local.catalog = local_catalog;
+    local.browse = local_browse;
+    local.library_dir = root;
+    TEST_ASSERT_TRUE(snprintf(catalog_db, sizeof(catalog_db),
+                              "/tmp/media_server_cover_%d.db", (int)getpid()) <
+                     (int)sizeof(catalog_db));
+    unlink(catalog_db);
+    local.catalog_db_path = catalog_db;
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&local));
+
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(0, album->cover_id);
+
+    rc = library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1, "jpg",
+                                 rel_path, sizeof(rel_path), &cover_id);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_STRING("Artist/Album/cover.jpg", rel_path);
+    TEST_ASSERT_NOT_EQUAL(0, cover_id);
+
+    TEST_ASSERT_TRUE(snprintf(cover_path, sizeof(cover_path), "%s/cover.jpg",
+                              album_dir) < (int)sizeof(cover_path));
+    fp = fopen(cover_path, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    TEST_ASSERT_EQUAL_UINT(sizeof(marker) - 1, fread(read_buf, 1, sizeof(read_buf), fp));
+    fclose(fp);
+    TEST_ASSERT_EQUAL_INT(0, memcmp(read_buf, marker, sizeof(marker) - 1));
+
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(cover_id, album->cover_id);
+    cover = catalog_find_id(local.catalog, cover_id);
+    TEST_ASSERT_NOT_NULL(cover);
+    TEST_ASSERT_EQUAL_STRING("Artist/Album/cover.jpg", cover->path);
+    library_status_get(&local, &st);
+    TEST_ASSERT_FALSE(st.scanning);
+
+    rc = library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1,
+                                 "jpg", rel_path, sizeof(rel_path),
+                                 &repeated_cover_id);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_UINT(cover_id, repeated_cover_id);
+    library_status_get(&local, &st);
+    TEST_ASSERT_FALSE(st.scanning);
+
+    loaded = catalog_create();
+    TEST_ASSERT_NOT_NULL(loaded);
+    TEST_ASSERT_EQUAL_INT(0, catalog_store_load(catalog_db, root, loaded));
+    cover = catalog_find_path(loaded, "Artist/Album/cover.jpg");
+    TEST_ASSERT_NOT_NULL(cover);
+    TEST_ASSERT_EQUAL_UINT(cover_id, cover->id);
+    catalog_destroy(loaded);
+
+    library_runtime_shutdown(&local);
+    browse_index_destroy(local.browse);
+    catalog_destroy(local.catalog);
+    remove(cover_path);
+    remove(track_dst);
+    rmdir(album_dir);
+    {
+        char artist_dir[512];
+        snprintf(artist_dir, sizeof(artist_dir), "%s/Artist", root);
+        rmdir(artist_dir);
+    }
+    rmdir(root);
+    unlink(catalog_db);
+}
+
+void test_album_cover_put_multi_disc_uses_common_parent(void)
+{
+    char root[] = "/tmp/media_server_cover_md_XXXXXX";
+    char album_dir[512];
+    char cd1_dir[512];
+    char cd2_dir[512];
+    char track_src[512];
+    char track_cd1[512];
+    char track_cd2[512];
+    char rel_path[256];
+    char cover_path[512];
+    char marker[] = "COVERMD";
+    app_context_t local = {0};
+    catalog_t *local_catalog;
+    browse_index_t *local_browse;
+    const browse_album_t *album;
+    uint32_t cover_id = 0;
+    FILE *fp;
+    char read_buf[32];
+    int rc;
+
+    TEST_ASSERT_NOT_NULL(mkdtemp(root));
+    TEST_ASSERT_TRUE(snprintf(album_dir, sizeof(album_dir), "%s/Artist/Album", root) <
+                     (int)sizeof(album_dir));
+    TEST_ASSERT_TRUE(snprintf(cd1_dir, sizeof(cd1_dir), "%s/CD1", album_dir) <
+                     (int)sizeof(cd1_dir));
+    TEST_ASSERT_TRUE(snprintf(cd2_dir, sizeof(cd2_dir), "%s/CD2", album_dir) <
+                     (int)sizeof(cd2_dir));
+    {
+        char artist_dir[512];
+        TEST_ASSERT_TRUE(snprintf(artist_dir, sizeof(artist_dir), "%s/Artist", root) <
+                         (int)sizeof(artist_dir));
+        TEST_ASSERT_EQUAL_INT(0, mkdir(artist_dir, 0755));
+        TEST_ASSERT_EQUAL_INT(0, mkdir(album_dir, 0755));
+        TEST_ASSERT_EQUAL_INT(0, mkdir(cd1_dir, 0755));
+        TEST_ASSERT_EQUAL_INT(0, mkdir(cd2_dir, 0755));
+    }
+    TEST_ASSERT_TRUE(
+        snprintf(track_src, sizeof(track_src),
+                 "tests/fixtures/library/Artist/Album/track01.mp3") <
+        (int)sizeof(track_src));
+    TEST_ASSERT_TRUE(snprintf(track_cd1, sizeof(track_cd1), "%s/track01.mp3",
+                              cd1_dir) < (int)sizeof(track_cd1));
+    TEST_ASSERT_TRUE(snprintf(track_cd2, sizeof(track_cd2), "%s/track02.mp3",
+                              cd2_dir) < (int)sizeof(track_cd2));
+    TEST_ASSERT_EQUAL_INT(0, copy_file(track_src, track_cd1));
+    TEST_ASSERT_EQUAL_INT(0, copy_file(track_src, track_cd2));
+
+    local_catalog = catalog_create();
+    TEST_ASSERT_NOT_NULL(local_catalog);
+    TEST_ASSERT_EQUAL_INT(0, scanner_scan(root, local_catalog));
+    local_browse = browse_index_build(local_catalog);
+    TEST_ASSERT_NOT_NULL(local_browse);
+    local.catalog = local_catalog;
+    local.browse = local_browse;
+    local.library_dir = root;
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&local));
+
+    TEST_ASSERT_EQUAL_UINT(1, browse_album_count(local.browse));
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(2, album->track_count);
+    TEST_ASSERT_EQUAL_UINT(0, album->cover_id);
+
+    rc = library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1, "jpg",
+                                 rel_path, sizeof(rel_path), &cover_id);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_STRING("Artist/Album/cover.jpg", rel_path);
+    TEST_ASSERT_NOT_EQUAL(0, cover_id);
+
+    TEST_ASSERT_TRUE(snprintf(cover_path, sizeof(cover_path), "%s/cover.jpg",
+                              album_dir) < (int)sizeof(cover_path));
+    fp = fopen(cover_path, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    TEST_ASSERT_EQUAL_UINT(sizeof(marker) - 1, fread(read_buf, 1, sizeof(read_buf), fp));
+    fclose(fp);
+    TEST_ASSERT_EQUAL_INT(0, memcmp(read_buf, marker, sizeof(marker) - 1));
+
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(cover_id, album->cover_id);
+
+    library_runtime_shutdown(&local);
+    browse_index_destroy(local.browse);
+    catalog_destroy(local.catalog);
+    remove(cover_path);
+    remove(track_cd1);
+    remove(track_cd2);
+    rmdir(cd1_dir);
+    rmdir(cd2_dir);
+    rmdir(album_dir);
+    {
+        char artist_dir[512];
+        snprintf(artist_dir, sizeof(artist_dir), "%s/Artist", root);
+        rmdir(artist_dir);
+    }
+    rmdir(root);
+}
+
+void test_album_cover_put_one_level_dir_survives_rescan(void)
+{
+    char root[] = "/tmp/media_server_cover_flat_XXXXXX";
+    char album_dir[512];
+    char track_src[512];
+    char track_dst[512];
+    char cover_path[512];
+    char catalog_db[128];
+    char rel_path[256];
+    char marker[] = "COVERFLAT";
+    metadata_patch_t patch = {0};
+    app_context_t local = {0};
+    catalog_t *local_catalog;
+    browse_index_t *local_browse;
+    const catalog_item_t *track;
+    const browse_album_t *album;
+    library_status_t st;
+    uint32_t cover_id = 0;
+    int rc;
+
+    TEST_ASSERT_NOT_NULL(mkdtemp(root));
+    TEST_ASSERT_TRUE(
+        snprintf(album_dir, sizeof(album_dir), "%s/Artist-Album-(2025)", root) <
+        (int)sizeof(album_dir));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(album_dir, 0755));
+    TEST_ASSERT_TRUE(
+        snprintf(track_src, sizeof(track_src),
+                 "tests/fixtures/library/Artist/Album/track01.mp3") <
+        (int)sizeof(track_src));
+    TEST_ASSERT_TRUE(snprintf(track_dst, sizeof(track_dst), "%s/track01.mp3",
+                              album_dir) < (int)sizeof(track_dst));
+    TEST_ASSERT_EQUAL_INT(0, copy_file(track_src, track_dst));
+    TEST_ASSERT_TRUE(snprintf(catalog_db, sizeof(catalog_db),
+                              "/tmp/media_server_cover_flat_%d.db",
+                              (int)getpid()) < (int)sizeof(catalog_db));
+    unlink(catalog_db);
+
+    local_catalog = catalog_create();
+    TEST_ASSERT_NOT_NULL(local_catalog);
+    TEST_ASSERT_EQUAL_INT(0, scanner_scan(root, local_catalog));
+    local_browse = browse_index_build(local_catalog);
+    TEST_ASSERT_NOT_NULL(local_browse);
+    local.catalog = local_catalog;
+    local.browse = local_browse;
+    local.library_dir = root;
+    local.catalog_db_path = catalog_db;
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&local));
+    TEST_ASSERT_EQUAL_UINT(0, browse_album_count(local.browse));
+
+    track = catalog_get(local.catalog, 0);
+    TEST_ASSERT_NOT_NULL(track);
+    patch.set_mask = METADATA_FIELD_ARTIST | METADATA_FIELD_ALBUM;
+    strcpy(patch.values.artist, "Artist");
+    strcpy(patch.values.album, "Album");
+    TEST_ASSERT_EQUAL_INT(
+        0, library_metadata_patch_track(&local, track->id, &patch, NULL));
+
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    rc = library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1,
+                                 "jpg", rel_path, sizeof(rel_path), &cover_id);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_STRING("Artist-Album-(2025)/cover.jpg", rel_path);
+    TEST_ASSERT_NOT_EQUAL(0, cover_id);
+
+    TEST_ASSERT_EQUAL_INT(0, library_scan_request(&local, false));
+    for (int i = 0; i < 200; i++) {
+        library_status_get(&local, &st);
+        if (!st.scanning) {
+            break;
+        }
+        sleep_ms(10);
+    }
+    library_status_get(&local, &st);
+    TEST_ASSERT_FALSE(st.scanning);
+    TEST_ASSERT_TRUE(st.last_scan_ok);
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+    TEST_ASSERT_EQUAL_UINT(cover_id, album->cover_id);
+
+    TEST_ASSERT_TRUE(snprintf(cover_path, sizeof(cover_path), "%s/cover.jpg",
+                              album_dir) < (int)sizeof(cover_path));
+    library_runtime_shutdown(&local);
+    browse_index_destroy(local.browse);
+    catalog_destroy(local.catalog);
+    remove(cover_path);
+    remove(track_dst);
+    rmdir(album_dir);
+    rmdir(root);
+    unlink(catalog_db);
+}
+
+void test_album_cover_put_reports_write_failure(void)
+{
+    char root[] = "/tmp/media_server_cover_write_XXXXXX";
+    char artist_dir[512];
+    char album_dir[512];
+    char cover_dir[512];
+    char marker[] = "COVER";
+    app_context_t local = {0};
+    const browse_album_t *album;
+
+    TEST_ASSERT_NOT_NULL(mkdtemp(root));
+    TEST_ASSERT_TRUE(snprintf(artist_dir, sizeof(artist_dir), "%s/Artist", root) <
+                     (int)sizeof(artist_dir));
+    TEST_ASSERT_TRUE(snprintf(album_dir, sizeof(album_dir), "%s/Album",
+                              artist_dir) < (int)sizeof(album_dir));
+    TEST_ASSERT_TRUE(snprintf(cover_dir, sizeof(cover_dir), "%s/cover.jpg",
+                              album_dir) < (int)sizeof(cover_dir));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(artist_dir, 0755));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(album_dir, 0755));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(cover_dir, 0755));
+
+    local.catalog = catalog_create();
+    TEST_ASSERT_NOT_NULL(local.catalog);
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(local.catalog, MEDIA_KIND_AUDIO,
+                       "Artist/Album/track.mp3"));
+    local.browse = browse_index_build(local.catalog);
+    TEST_ASSERT_NOT_NULL(local.browse);
+    local.library_dir = root;
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&local));
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+
+    TEST_ASSERT_EQUAL_INT(
+        LIBRARY_COVER_WRITE_FAILED,
+        library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1,
+                                "jpg", NULL, 0, NULL));
+
+    library_runtime_shutdown(&local);
+    browse_index_destroy(local.browse);
+    catalog_destroy(local.catalog);
+    rmdir(cover_dir);
+    rmdir(album_dir);
+    rmdir(artist_dir);
+    rmdir(root);
+}
+
+void test_album_cover_put_reports_link_failure(void)
+{
+    char root[] = "/tmp/media_server_cover_link_XXXXXX";
+    char shared_dir[512];
+    char cover_path[512];
+    char marker[] = "COVER";
+    media_metadata_t first = {0};
+    media_metadata_t second = {0};
+    app_context_t local = {0};
+    const browse_album_t *album;
+
+    TEST_ASSERT_NOT_NULL(mkdtemp(root));
+    TEST_ASSERT_TRUE(snprintf(shared_dir, sizeof(shared_dir), "%s/Shared", root) <
+                     (int)sizeof(shared_dir));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(shared_dir, 0755));
+    strcpy(first.artist, "Artist");
+    strcpy(first.album, "First");
+    strcpy(first.title, "One");
+    strcpy(second.artist, "Artist");
+    strcpy(second.album, "Second");
+    strcpy(second.title, "Two");
+
+    local.catalog = catalog_create();
+    TEST_ASSERT_NOT_NULL(local.catalog);
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(local.catalog, MEDIA_KIND_AUDIO,
+                                "Shared/one.flac", &first));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add_metadata(local.catalog, MEDIA_KIND_AUDIO,
+                                "Shared/two.flac", &second));
+    local.browse = browse_index_build(local.catalog);
+    TEST_ASSERT_NOT_NULL(local.browse);
+    local.library_dir = root;
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&local));
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+
+    TEST_ASSERT_EQUAL_INT(
+        LIBRARY_COVER_LINK_FAILED,
+        library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1,
+                                "jpg", NULL, 0, NULL));
+
+    TEST_ASSERT_TRUE(snprintf(cover_path, sizeof(cover_path), "%s/cover.jpg",
+                              shared_dir) < (int)sizeof(cover_path));
+    library_runtime_shutdown(&local);
+    browse_index_destroy(local.browse);
+    catalog_destroy(local.catalog);
+    remove(cover_path);
+    rmdir(shared_dir);
+    rmdir(root);
+}
+
+void test_album_cover_put_reports_catalog_save_failure(void)
+{
+    char root[] = "/tmp/media_server_cover_save_XXXXXX";
+    char artist_dir[512];
+    char album_dir[512];
+    char cover_path[512];
+    char marker[] = "COVER";
+    app_context_t local = {0};
+    const browse_album_t *album;
+
+    TEST_ASSERT_NOT_NULL(mkdtemp(root));
+    TEST_ASSERT_TRUE(snprintf(artist_dir, sizeof(artist_dir), "%s/Artist", root) <
+                     (int)sizeof(artist_dir));
+    TEST_ASSERT_TRUE(snprintf(album_dir, sizeof(album_dir), "%s/Album",
+                              artist_dir) < (int)sizeof(album_dir));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(artist_dir, 0755));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(album_dir, 0755));
+
+    local.catalog = catalog_create();
+    TEST_ASSERT_NOT_NULL(local.catalog);
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(local.catalog, MEDIA_KIND_AUDIO,
+                       "Artist/Album/track.mp3"));
+    local.browse = browse_index_build(local.catalog);
+    TEST_ASSERT_NOT_NULL(local.browse);
+    local.library_dir = root;
+    local.catalog_db_path = root; /* sqlite cannot open a directory as a DB */
+    TEST_ASSERT_EQUAL_INT(0, library_runtime_init(&local));
+    album = browse_album_get(local.browse, 0);
+    TEST_ASSERT_NOT_NULL(album);
+
+    TEST_ASSERT_EQUAL_INT(
+        LIBRARY_COVER_CATALOG_SAVE_FAILED,
+        library_album_cover_put(&local, album->id, marker, sizeof(marker) - 1,
+                                "jpg", NULL, 0, NULL));
+
+    TEST_ASSERT_TRUE(snprintf(cover_path, sizeof(cover_path), "%s/cover.jpg",
+                              album_dir) < (int)sizeof(cover_path));
+    library_runtime_shutdown(&local);
+    browse_index_destroy(local.browse);
+    catalog_destroy(local.catalog);
+    remove(cover_path);
+    rmdir(album_dir);
+    rmdir(artist_dir);
+    rmdir(root);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -244,5 +725,11 @@ int main(void)
     RUN_TEST(test_completed_workers_are_reaped_before_next_scan);
     RUN_TEST(test_metadata_patch_is_ephemeral_without_catalog_db);
     RUN_TEST(test_metadata_patch_persists_with_catalog_db);
+    RUN_TEST(test_album_cover_put_writes_and_indexes);
+    RUN_TEST(test_album_cover_put_multi_disc_uses_common_parent);
+    RUN_TEST(test_album_cover_put_one_level_dir_survives_rescan);
+    RUN_TEST(test_album_cover_put_reports_write_failure);
+    RUN_TEST(test_album_cover_put_reports_link_failure);
+    RUN_TEST(test_album_cover_put_reports_catalog_save_failure);
     return UNITY_END();
 }

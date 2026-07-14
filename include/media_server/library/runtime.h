@@ -49,6 +49,35 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
                                  const metadata_patch_t *patch,
                                  size_t *updated_track_count);
 
+#define LIBRARY_COVER_MAX_BYTES (10u * 1024u * 1024u)
+#define LIBRARY_COVER_WRITE_FAILED 7
+#define LIBRARY_COVER_LINK_FAILED 8
+#define LIBRARY_COVER_CATALOG_SAVE_FAILED 9
+
+/*
+ * Write cover.<ext> beside the album's tracks (or their common parent dir for
+ * multi-disc layouts), then add it to the in-memory catalog immediately.
+ * ext is without a leading dot (jpg/png/webp). out_rel_path receives the
+ * relative library path (e.g. "Artist/Album/cover.jpg"); may be NULL.
+ * out_cover_id receives the catalog image id; may be NULL.
+ *
+ * Returns:
+ *   0  written and indexed
+ *   1  library busy (scan or metadata mutation in progress)
+ *   3  album not found
+ *   4  no library_dir
+ *   5  no album directory (no owned tracks / empty dirname)
+ *   6  ambiguous album directory (owned tracks share no common parent)
+ *   7  filesystem write failure
+ *   8  written, but could not link the image to the album
+ *   9  written and linked, but catalog persistence failed
+ *  -1  invalid input or internal update failure
+ */
+int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
+                            const void *bytes, size_t len, const char *ext,
+                            char *out_rel_path, size_t out_rel_path_size,
+                            uint32_t *out_cover_id);
+
 void library_status_get(app_context_t *ctx, library_status_t *out);
 
 #endif /* MEDIA_SERVER_LIBRARY_RUNTIME_H */

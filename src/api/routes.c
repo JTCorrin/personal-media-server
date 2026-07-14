@@ -43,6 +43,8 @@ int api_routes_register(router_t *router, app_context_t *ctx)
         add_route(router, "GET", "/api/albums", handle_albums, ctx) != 0 ||
         add_route(router, "GET", "/api/albums/:id", handle_album_by_id, ctx) != 0 ||
         add_route(router, "PATCH", "/api/albums/:id", handle_album_patch, ctx) != 0 ||
+        add_route(router, "PUT", "/api/albums/:id/cover", handle_album_cover_put, ctx) !=
+            0 ||
         add_route(router, "GET", "/api/albums/:id/tracks", handle_album_tracks, ctx) !=
             0 ||
         add_route(router, "GET", "/api/search", handle_search, ctx) != 0 ||

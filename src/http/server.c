@@ -219,6 +219,30 @@ int http_query_get(void *req, const char *name, char *out, size_t out_size)
     return HTTP_QUERY_INVALID;
 }
 
+int http_header_get(void *req, const char *name, char *out, size_t out_size)
+{
+    struct mg_http_message *hm = (struct mg_http_message *)req;
+    struct mg_str *hdr;
+
+    if (hm == NULL || name == NULL || name[0] == '\0' || out == NULL ||
+        out_size == 0) {
+        return HTTP_QUERY_INVALID;
+    }
+
+    hdr = mg_http_get_header(hm, name);
+    if (hdr == NULL || hdr->buf == NULL) {
+        out[0] = '\0';
+        return HTTP_QUERY_MISSING;
+    }
+    if (hdr->len + 1 > out_size) {
+        out[0] = '\0';
+        return HTTP_QUERY_INVALID;
+    }
+    memcpy(out, hdr->buf, hdr->len);
+    out[hdr->len] = '\0';
+    return HTTP_QUERY_OK;
+}
+
 void http_reply_file(void *req, void *res, const char *abs_path, const char *content_type)
 {
     struct mg_connection *c = (struct mg_connection *)res;

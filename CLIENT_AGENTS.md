@@ -67,7 +67,10 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 - **Track / image** ids are catalog ids (stable across restarts when the server
   uses `--catalog-db`).
 - **Artist / album** ids are synthetic (discovery order). Refetch after album
-  metadata PATCH — regrouping can change album ids.
+  or track metadata PATCH — regrouping can change album ids, including each
+  Track object's `album_id`.
+- A Track's `cover_id` is the album's catalog image id and is stable under the
+  same rules as other image ids.
 - Never send filesystem paths; only numeric ids.
 
 ---
@@ -89,9 +92,15 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
   "genre": null,
   "track_number": null,
   "disc_number": null,
+  "album_id": 1,
+  "cover_id": 3,
   "overridden_fields": []
 }
 ```
+
+`album_id` and `cover_id` are present on every Track response and may be
+`null`. They are enriched consistently in track lists/details, search,
+discover, playlists, favourites, history, and album-track responses.
 
 **Artist:**
 
@@ -155,6 +164,7 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 | GET | `/api/albums` | Paginated albums |
 | GET | `/api/albums/:id` | One album |
 | PATCH | `/api/albums/:id` | Override all tracks in album |
+| PUT | `/api/albums/:id/cover` | Upload and immediately index a cover |
 | GET | `/api/albums/:id/tracks` | Tracks on album |
 
 ### Search / discover
@@ -214,6 +224,18 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 
 `PATCH /api/albums/:id` — `name`, `artist`, `release_date`, `genre`. Response:
 `{"updated_track_count":N}`. Refetch albums afterward.
+
+`PUT /api/albums/:id/cover` — raw body with `Content-Type: image/jpeg|png|webp`
+(max 10 MiB). Writes `cover.<ext>` beside the album tracks (or in the common
+parent for multi-disc folders), indexes it without a full scan, and returns
+`200 {"ok":true,"path":"...","cover_id":123}`. Use the returned id at
+`/cover/123` immediately; no scan polling is needed. Returns
+`400 {"error":"ambiguous_album_dir"}` when tracks share no common parent
+directory. One-level album folders are supported through physical-directory
+matching. Server failures distinguish filesystem writes (`write_failed`),
+album relationship updates (`cover_link_failed`), and catalog persistence
+(`catalog_save_failed`). No auth — anyone who can reach the server can write
+into the library.
 
 ---
 

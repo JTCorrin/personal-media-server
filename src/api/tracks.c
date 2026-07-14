@@ -15,6 +15,7 @@ void handle_tracks(const router_match_t *match, void *req, void *res)
 
     api_context_lock(ctx);
     api_reply_catalog_kind_list(req, res, api_context_catalog_locked(ctx),
+                                api_context_browse_locked(ctx),
                                 MEDIA_KIND_AUDIO);
     api_context_unlock(ctx);
 }
@@ -26,6 +27,7 @@ void handle_track_by_id(const router_match_t *match, void *req, void *res)
     (void)req;
     api_context_lock(ctx);
     api_reply_catalog_kind_by_id(match, res, api_context_catalog_locked(ctx),
+                                 api_context_browse_locked(ctx),
                                  MEDIA_KIND_AUDIO);
     api_context_unlock(ctx);
 }
@@ -64,7 +66,11 @@ void handle_track_patch(const router_match_t *match, void *req, void *res)
         http_reply_json(res, 500, "{\"error\":\"out of memory\"}");
         return;
     }
-    if (append_catalog_item_json(&sb, &updated) != 0) {
+    api_context_lock(ctx);
+    rc = append_catalog_item_json(&sb, &updated,
+                                  api_context_browse_locked(ctx));
+    api_context_unlock(ctx);
+    if (rc != 0) {
         string_buf_free(&sb);
         http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
         return;

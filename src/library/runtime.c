@@ -4,12 +4,18 @@
 #include "media_server/library/catalog.h"
 #include "media_server/library/catalog_store.h"
 #include "media_server/library/scanner.h"
+#include "media_server/media/file.h"
 #include "media_server/media/kind.h"
 #include "media_server/util/log.h"
+#include "media_server/util/path.h"
 
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 int library_runtime_init(app_context_t *ctx)
 {
@@ -443,6 +449,270 @@ int library_metadata_patch_album(app_context_t *ctx, uint32_t album_id,
     free(ids);
     *updated_track_count = count;
     metadata_mutation_finish(ctx, copy, browse);
+    return 0;
+}
+
+static int resolve_album_cover_dir(app_context_t *ctx, uint32_t album_id,
+                                   char *dir_out, size_t dir_out_size)
+{
+    const browse_album_t *album;
+    catalog_t *catalog;
+    char common_dir[CATALOG_PATH_MAX];
+    bool have_dir = false;
+    size_t count;
+
+    album = browse_album_find_id(ctx->browse, album_id);
+    if (album == NULL) {
+        return 3;
+    }
+
+    catalog = ctx->catalog;
+    count = catalog_count(catalog);
+    common_dir[0] = '\0';
+
+    for (size_t i = 0; i < count; i++) {
+        const catalog_item_t *item = catalog_get(catalog, i);
+        char dir[CATALOG_PATH_MAX];
+
+        if (item == NULL || item->kind != MEDIA_KIND_AUDIO ||
+            !browse_album_owns_item(album, item)) {
+            continue;
+        }
+        if (path_dirname(dir, sizeof(dir), item->path) != 0) {
+            return -1;
+        }
+        if (dir[0] == '\0') {
+            return 5;
+        }
+        if (!have_dir) {
+            if (strlen(dir) + 1 > sizeof(common_dir)) {
+                return -1;
+            }
+            memcpy(common_dir, dir, strlen(dir) + 1);
+            have_dir = true;
+        } else if (strcmp(common_dir, dir) != 0) {
+            char next_common[CATALOG_PATH_MAX];
+
+            if (path_common_dir(next_common, sizeof(next_common), common_dir,
+                                dir) != 0) {
+                return -1;
+            }
+            if (next_common[0] == '\0') {
+                return 6;
+            }
+            memcpy(common_dir, next_common, strlen(next_common) + 1);
+        }
+    }
+
+    if (!have_dir) {
+        return 5;
+    }
+    if (strlen(common_dir) + 1 > dir_out_size) {
+        return -1;
+    }
+    memcpy(dir_out, common_dir, strlen(common_dir) + 1);
+    return 0;
+}
+
+static int atomic_write_file(const char *abs_path, const void *bytes, size_t len)
+{
+    char tmp_path[CATALOG_PATH_MAX * 2 + 64];
+    FILE *fp;
+    size_t written;
+    int fd;
+
+    if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d", abs_path, (int)getpid()) >=
+        (int)sizeof(tmp_path)) {
+        LOG_ERROR("library", "cover temp path too long: %s", abs_path);
+        return -1;
+    }
+
+    fp = fopen(tmp_path, "wb");
+    if (fp == NULL) {
+        LOG_ERROR("library", "fopen(%s): %s", tmp_path, strerror(errno));
+        return -1;
+    }
+    errno = 0;
+    written = fwrite(bytes, 1, len, fp);
+    if (written != len) {
+        int saved_errno = errno != 0 ? errno : EIO;
+
+        fclose(fp);
+        remove(tmp_path);
+        LOG_ERROR("library", "fwrite(%s): %s", tmp_path, strerror(saved_errno));
+        return -1;
+    }
+    if (fflush(fp) != 0) {
+        int saved_errno = errno;
+
+        fclose(fp);
+        remove(tmp_path);
+        LOG_ERROR("library", "fflush(%s): %s", tmp_path, strerror(saved_errno));
+        return -1;
+    }
+    fd = fileno(fp);
+    if (fd >= 0 && fsync(fd) != 0) {
+        int saved_errno = errno;
+
+        fclose(fp);
+        remove(tmp_path);
+        LOG_ERROR("library", "fsync(%s): %s", tmp_path, strerror(saved_errno));
+        return -1;
+    }
+    if (fclose(fp) != 0) {
+        int saved_errno = errno;
+
+        remove(tmp_path);
+        LOG_ERROR("library", "fclose(%s): %s", tmp_path, strerror(saved_errno));
+        return -1;
+    }
+    if (rename(tmp_path, abs_path) != 0) {
+        int saved_errno = errno;
+
+        remove(tmp_path);
+        LOG_ERROR("library", "rename(%s, %s): %s", tmp_path, abs_path,
+                  strerror(saved_errno));
+        return -1;
+    }
+    return 0;
+}
+
+int library_album_cover_put(app_context_t *ctx, uint32_t album_id,
+                            const void *bytes, size_t len, const char *ext,
+                            char *out_rel_path, size_t out_rel_path_size,
+                            uint32_t *out_cover_id)
+{
+    char rel_dir[CATALOG_PATH_MAX];
+    char rel_path[CATALOG_PATH_MAX];
+    char abs_path[CATALOG_PATH_MAX * 2];
+    char abs_dir[CATALOG_PATH_MAX * 2];
+    catalog_t *copy = NULL;
+    browse_index_t *new_browse = NULL;
+    const catalog_item_t *cover_item;
+    const browse_album_t *updated_album;
+    struct stat st;
+    int rc;
+
+    if (ctx == NULL || bytes == NULL || ext == NULL || ext[0] == '\0' ||
+        (ext[0] == '.' && ext[1] == '\0')) {
+        return -1;
+    }
+    if (len == 0 || len > LIBRARY_COVER_MAX_BYTES) {
+        return -1;
+    }
+
+    /* Normalize ext: allow callers to pass ".jpg" or "jpg". */
+    if (ext[0] == '.') {
+        ext++;
+    }
+
+    pthread_mutex_lock(&ctx->mu);
+    if (ctx->library_dir == NULL || ctx->library_dir[0] == '\0') {
+        pthread_mutex_unlock(&ctx->mu);
+        return 4;
+    }
+    if (ctx->scanning || ctx->metadata_mutating) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 1;
+    }
+
+    rc = resolve_album_cover_dir(ctx, album_id, rel_dir, sizeof(rel_dir));
+    if (rc != 0) {
+        pthread_mutex_unlock(&ctx->mu);
+        return rc;
+    }
+
+    if (snprintf(rel_path, sizeof(rel_path), "%s/cover.%s", rel_dir, ext) >=
+        (int)sizeof(rel_path)) {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (out_rel_path != NULL &&
+        (out_rel_path_size == 0 || strlen(rel_path) + 1 > out_rel_path_size)) {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (media_resolve_path(ctx->library_dir, rel_path, abs_path, sizeof(abs_path)) !=
+        0) {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (path_dirname(abs_dir, sizeof(abs_dir), abs_path) != 0 || abs_dir[0] == '\0') {
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    if (stat(abs_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        pthread_mutex_unlock(&ctx->mu);
+        return 5;
+    }
+
+    ctx->metadata_mutating = true;
+    copy = catalog_clone(ctx->catalog);
+    if (copy == NULL) {
+        ctx->metadata_mutating = false;
+        pthread_mutex_unlock(&ctx->mu);
+        return -1;
+    }
+    pthread_mutex_unlock(&ctx->mu);
+
+    if (atomic_write_file(abs_path, bytes, len) != 0) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return LIBRARY_COVER_WRITE_FAILED;
+    }
+
+    cover_item = catalog_find_path(copy, rel_path);
+    if (cover_item == NULL) {
+        if (catalog_add(copy, MEDIA_KIND_IMAGE, rel_path) != 0) {
+            catalog_destroy(copy);
+            metadata_mutation_abort(ctx);
+            LOG_ERROR("library", "failed to add album cover %s to catalog",
+                      rel_path);
+            return LIBRARY_COVER_LINK_FAILED;
+        }
+        cover_item = catalog_find_path(copy, rel_path);
+    }
+    if (cover_item == NULL || cover_item->kind != MEDIA_KIND_IMAGE) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return LIBRARY_COVER_LINK_FAILED;
+    }
+
+    new_browse = browse_index_build(copy);
+    if (new_browse == NULL) {
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        return LIBRARY_COVER_LINK_FAILED;
+    }
+    updated_album = browse_album_find_id(new_browse, album_id);
+    if (updated_album == NULL || updated_album->cover_id == 0) {
+        browse_index_destroy(new_browse);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        LOG_ERROR("library", "failed to link album cover %s", rel_path);
+        return LIBRARY_COVER_LINK_FAILED;
+    }
+
+    if (ctx->catalog_db_path != NULL && ctx->catalog_db_path[0] != '\0' &&
+        catalog_store_save(ctx->catalog_db_path, ctx->library_dir, copy) != 0) {
+        browse_index_destroy(new_browse);
+        catalog_destroy(copy);
+        metadata_mutation_abort(ctx);
+        LOG_ERROR("library", "failed to save catalog after cover upload: %s",
+                  ctx->catalog_db_path);
+        return LIBRARY_COVER_CATALOG_SAVE_FAILED;
+    }
+
+    if (out_rel_path != NULL && out_rel_path_size > 0) {
+        memcpy(out_rel_path, rel_path, strlen(rel_path) + 1);
+    }
+    if (out_cover_id != NULL) {
+        *out_cover_id = updated_album->cover_id;
+    }
+
+    LOG_INFO("library", "wrote and indexed album cover %s (id %u)", rel_path,
+             updated_album->cover_id);
+    metadata_mutation_finish(ctx, copy, new_browse);
     return 0;
 }
 

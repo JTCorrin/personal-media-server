@@ -49,7 +49,32 @@ static int append_overridden_fields(string_buf_t *sb, uint32_t mask)
     return string_buf_append_char(sb, ']');
 }
 
-int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item)
+static int append_optional_id(string_buf_t *sb, uint32_t id)
+{
+    return id == 0 ? string_buf_append(sb, "null")
+                   : string_buf_append_fmt(sb, "%u", id);
+}
+
+static int append_track_links(string_buf_t *sb, const catalog_item_t *item,
+                              const browse_index_t *browse)
+{
+    browse_track_link_t link = {0};
+
+    if (item->kind != MEDIA_KIND_AUDIO) {
+        return 0;
+    }
+    (void)browse_track_link_find(browse, item->id, &link);
+    if (string_buf_append(sb, ",\"album_id\":") != 0 ||
+        append_optional_id(sb, link.album_id) != 0 ||
+        string_buf_append(sb, ",\"cover_id\":") != 0 ||
+        append_optional_id(sb, link.cover_id) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item,
+                             const browse_index_t *browse)
 {
     if (sb == NULL || item == NULL) {
         return -1;
@@ -110,7 +135,8 @@ int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item)
     } else if (string_buf_append_fmt(sb, "%u", item->disc_number) != 0) {
         return -1;
     }
-    if (string_buf_append(sb, ",\"overridden_fields\":") != 0 ||
+    if (append_track_links(sb, item, browse) != 0 ||
+        string_buf_append(sb, ",\"overridden_fields\":") != 0 ||
         append_overridden_fields(sb, item->override_mask) != 0) {
         return -1;
     }
@@ -118,7 +144,7 @@ int append_catalog_item_json(string_buf_t *sb, const catalog_item_t *item)
 }
 
 void api_reply_catalog_kind_list(void *req, void *res, catalog_t *catalog,
-                                 media_kind_t kind)
+                                 const browse_index_t *browse, media_kind_t kind)
 {
     api_page_t page;
     size_t count = catalog_count(catalog);
@@ -148,7 +174,7 @@ void api_reply_catalog_kind_list(void *req, void *res, catalog_t *catalog,
             if (written > 0 && string_buf_append_char(&sb, ',') != 0) {
                 goto fail;
             }
-            if (append_catalog_item_json(&sb, item) != 0) {
+            if (append_catalog_item_json(&sb, item, browse) != 0) {
                 goto fail;
             }
             written++;
@@ -170,7 +196,9 @@ fail:
 }
 
 void api_reply_catalog_kind_by_id(const router_match_t *match, void *res,
-                                  catalog_t *catalog, media_kind_t kind)
+                                  catalog_t *catalog,
+                                  const browse_index_t *browse,
+                                  media_kind_t kind)
 {
     uint32_t id = 0;
     const catalog_item_t *item;
@@ -192,7 +220,7 @@ void api_reply_catalog_kind_by_id(const router_match_t *match, void *res,
         return;
     }
 
-    if (append_catalog_item_json(&sb, item) != 0) {
+    if (append_catalog_item_json(&sb, item, browse) != 0) {
         string_buf_free(&sb);
         http_reply_json(res, 500, "{\"error\":\"encode failed\"}");
         return;

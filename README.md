@@ -1,4 +1,4 @@
-# media-server
+# personal-media-server
 
 A lightweight media server written in C. It scans a directory of audio
 files and cover art, builds an in-memory catalog, and serves it over HTTP —
@@ -129,6 +129,7 @@ Shut down cleanly with `Ctrl-C` or `SIGTERM`.
 | GET    | `/api/albums`             | Albums (paginated)                             |
 | GET    | `/api/albums/:id`         | One album                                      |
 | PATCH  | `/api/albums/:id`         | Override metadata for every track in album     |
+| PUT    | `/api/albums/:id/cover`   | Upload and immediately index a cover image     |
 | GET    | `/api/albums/:id/tracks`  | Tracks on an album (paginated)                 |
 | GET    | `/api/search?q=<text>`    | Search tracks, artists, and albums             |
 | GET    | `/api/library/status`     | Scan status and catalog counts                 |
@@ -174,8 +175,14 @@ fields are overridden:
 ```json
 {"id":1,"kind":"audio","path":"Artist/Album/track01.mp3","filename":"track01.mp3",
  "artist":"Artist","album":"Album","title":"track01","release_date":null,
- "genre":null,"track_number":null,"disc_number":null,"overridden_fields":[]}
+ "genre":null,"track_number":null,"disc_number":null,"album_id":1,"cover_id":3,
+ "overridden_fields":[]}
 ```
+
+Every audio Track object includes nullable `album_id` and `cover_id`, including
+tracks nested in search, discover, playlists, favourites, history, and album
+track responses. This lets clients navigate to the album and render
+`/cover/:cover_id` without additional album lookups.
 
 ### Metadata overrides
 
@@ -204,6 +211,22 @@ transactionally. The response is `{"updated_track_count":N}`; refetch albums
 afterward because changing artist/name can regroup albums and change synthetic
 album IDs.
 
+`PUT /api/albums/:id/cover` accepts raw image bytes with
+`Content-Type: image/jpeg`, `image/png`, or `image/webp` (max 10 MiB). The
+server writes `cover.<ext>` next to the album's tracks (never accepts a client
+path) and updates the catalog immediately without a full library rescan. Covers
+are linked by their unique physical album directory, so both one-level layouts
+(`Artist-Album-(2025)/track.flac`) and conventional `Artist/Album` layouts work.
+For multi-disc layouts whose tracks live under a shared parent (e.g.
+`Artist/Album/CD1` and `Artist/Album/CD2`), the cover is written in that common
+parent (`Artist/Album/cover.jpg`). If owned tracks share no common directory,
+the response is `400 {"error":"ambiguous_album_dir"}`. A successful response is
+`200 {"ok":true,"path":"Artist/Album/cover.jpg","cover_id":123}`; the returned
+id can be used at `/cover/123` immediately. Filesystem, relationship, and
+catalog-persistence failures return `write_failed`, `cover_link_failed`, and
+`catalog_save_failed` respectively. This endpoint writes into `--library-dir`;
+like the rest of the API there is no authentication.
+
 Overrides have precedence over embedded tags and filename/path metadata. With
 `--catalog-db`, they
 survive rescans and restarts in a path-keyed `metadata_overrides` table.
@@ -215,8 +238,11 @@ Catalog item IDs are assigned during the scan starting at 1 and are reused by
 relative path when `--catalog-db` is set (stable across restarts and rescans).
 Artist and album IDs are synthetic (discovery order) and not persisted.
 
-Album JSON includes `cover_id` (catalog image id, or `null`) matched by
-artist/album path meta, preferring `cover.*` / `folder.*` / `front.*`.
+Album JSON includes `cover_id` (catalog image id, or `null`) matched first by a
+unique physical album directory and then by artist/album path metadata,
+preferring `cover.*` / `folder.*` / `front.*`.
+Track JSON exposes that same image id as `cover_id`; its `album_id` is the
+current synthetic album id and must be refetched after metadata regrouping.
 
 Search accepts optional `fuzzy=1` for typo-tolerant matching (edit distance ≤ 2)
 in addition to case-insensitive substring match. Results are ranked by relevance
@@ -292,6 +318,7 @@ third_party/            vendored Mongoose and Unity
 
 - Binds to `127.0.0.1` by default. There is no authentication or TLS — if
   you listen on `0.0.0.0`, only do so on a network you trust.
+  `PUT /api/albums/:id/cover` can write image files under `--library-dir`.
 - Clients can only reference media by numeric ID; file paths are never
   accepted from the network, and resolved paths reject absolute paths and
   `..` segments as defense in depth.
