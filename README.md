@@ -1,4 +1,4 @@
-# media-server
+# personal-media-server
 
 A lightweight media server written in C. It scans a directory of audio
 files and cover art, builds an in-memory catalog, and serves it over HTTP —
@@ -175,8 +175,14 @@ fields are overridden:
 ```json
 {"id":1,"kind":"audio","path":"Artist/Album/track01.mp3","filename":"track01.mp3",
  "artist":"Artist","album":"Album","title":"track01","release_date":null,
- "genre":null,"track_number":null,"disc_number":null,"overridden_fields":[]}
+ "genre":null,"track_number":null,"disc_number":null,"album_id":1,"cover_id":3,
+ "overridden_fields":[]}
 ```
+
+Every audio Track object includes nullable `album_id` and `cover_id`, including
+tracks nested in search, discover, playlists, favourites, history, and album
+track responses. This lets clients navigate to the album and render
+`/cover/:cover_id` without additional album lookups.
 
 ### Metadata overrides
 
@@ -230,6 +236,8 @@ Artist and album IDs are synthetic (discovery order) and not persisted.
 
 Album JSON includes `cover_id` (catalog image id, or `null`) matched by
 artist/album path meta, preferring `cover.*` / `folder.*` / `front.*`.
+Track JSON exposes that same image id as `cover_id`; its `album_id` is the
+current synthetic album id and must be refetched after metadata regrouping.
 
 Search accepts optional `fuzzy=1` for typo-tolerant matching (edit distance ≤ 2)
 in addition to case-insensitive substring match. Results are ranked by relevance

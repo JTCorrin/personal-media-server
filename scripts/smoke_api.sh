@@ -76,6 +76,20 @@ expect_status() {
   echo "OK ${method} ${path} -> ${got}"
 }
 
+assert_track_links() {
+  local body="$1"
+  local label="$2"
+
+  if ! printf '%s' "${body}" | grep -qE '"album_id":[1-9][0-9]*'; then
+    echo "FAIL ${label} missing track album_id: ${body}" >&2
+    exit 1
+  fi
+  if ! printf '%s' "${body}" | grep -qE '"cover_id":[1-9][0-9]*'; then
+    echo "FAIL ${label} missing track cover_id: ${body}" >&2
+    exit 1
+  fi
+}
+
 echo "==> live routes"
 expect_status GET /api/ping 200
 
@@ -88,6 +102,7 @@ if ! printf '%s' "${tracks}" | grep -q '"artist"'; then
   echo "FAIL /api/tracks missing artist field: ${tracks}" >&2
   exit 1
 fi
+assert_track_links "${tracks}" "/api/tracks"
 echo "OK GET /api/tracks envelope"
 
 audio_id="$(printf '%s' "${tracks}" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
@@ -96,6 +111,7 @@ if [[ -z "${audio_id}" ]]; then
   exit 1
 fi
 original_track="$(curl -sf "${LISTEN}/api/tracks/${audio_id}")"
+assert_track_links "${original_track}" "/api/tracks/${audio_id}"
 original_title="$(printf '%s' "${original_track}" |
   sed -n 's/.*"title":"\([^"]*\)".*/\1/p')"
 expect_status GET "/api/tracks/${audio_id}" 200
@@ -112,6 +128,7 @@ if ! printf '%s' "${patched_track}" | grep -q '"overridden_fields":\["title"'; t
   echo "FAIL track override provenance: ${patched_track}" >&2
   exit 1
 fi
+assert_track_links "${patched_track}" "PATCH /api/tracks/${audio_id}"
 echo "OK PATCH /api/tracks/${audio_id}"
 code="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
   -H 'Content-Type: application/json' -d '{"track_number":0}' \
@@ -163,6 +180,7 @@ if ! printf '%s' "${album_tracks}" | grep -q 'track01.mp3'; then
   echo "FAIL /api/albums/${album_id}/tracks missing track01: ${album_tracks}" >&2
   exit 1
 fi
+assert_track_links "${album_tracks}" "/api/albums/${album_id}/tracks"
 echo "OK GET /api/albums/${album_id}/tracks (cover_id=${cover_id})"
 
 album_patch="$(curl -sf -X PATCH -H 'Content-Type: application/json' \
@@ -211,6 +229,7 @@ if ! printf '%s' "${search}" | grep -q '"artists"'; then
   echo "FAIL /api/search missing artists: ${search}" >&2
   exit 1
 fi
+assert_track_links "${search}" "/api/search"
 echo "OK GET /api/search?q=Artist"
 expect_status GET /api/search 400
 
@@ -303,11 +322,13 @@ if [[ "${code}" != "200" ]]; then
   echo "FAIL PUT playlist tracks expected 200, got ${code}" >&2
   exit 1
 fi
-expect_status GET "/api/playlists/${pl_id}/tracks" 200
+playlist_tracks="$(curl -sf "${LISTEN}/api/playlists/${pl_id}/tracks")"
+assert_track_links "${playlist_tracks}" "/api/playlists/${pl_id}/tracks"
 expect_status GET /api/playlists 200
 
 expect_status PUT "/api/favourites/${audio_id}" 200
-expect_status GET /api/favourites 200
+favourites="$(curl -sf "${LISTEN}/api/favourites")"
+assert_track_links "${favourites}" "/api/favourites"
 expect_status DELETE "/api/favourites/${audio_id}" 200
 
 code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
@@ -317,10 +338,14 @@ if [[ "${code}" != "200" ]]; then
   echo "FAIL POST /api/history expected 200, got ${code}" >&2
   exit 1
 fi
-expect_status GET /api/history 200
-expect_status GET /api/discover/random 200
-expect_status GET /api/discover/recent 200
-expect_status GET /api/discover/recently-played 200
+history="$(curl -sf "${LISTEN}/api/history")"
+assert_track_links "${history}" "/api/history"
+discover_random="$(curl -sf "${LISTEN}/api/discover/random")"
+assert_track_links "${discover_random}" "/api/discover/random"
+discover_recent="$(curl -sf "${LISTEN}/api/discover/recent")"
+assert_track_links "${discover_recent}" "/api/discover/recent"
+discover_played="$(curl -sf "${LISTEN}/api/discover/recently-played")"
+assert_track_links "${discover_played}" "/api/discover/recently-played"
 
 fuzzy="$(curl -sf "${LISTEN}/api/search?q=Artst&fuzzy=1")"
 if ! printf '%s' "${fuzzy}" | grep -q '"fuzzy":true'; then

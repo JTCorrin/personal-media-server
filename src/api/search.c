@@ -41,7 +41,9 @@ static int scored_ptr_cmp(const void *a, const void *b)
 
 static int append_scored_page(string_buf_t *sb, scored_ptr_t *hits, size_t total,
                               const api_page_t *page,
-                              int (*append_one)(string_buf_t *, const void *))
+                              const browse_index_t *browse,
+                              int (*append_one)(string_buf_t *, const void *,
+                                                const browse_index_t *))
 {
     size_t written = 0;
 
@@ -57,7 +59,7 @@ static int append_scored_page(string_buf_t *sb, scored_ptr_t *hits, size_t total
         if (written > 0 && string_buf_append_char(sb, ',') != 0) {
             return -1;
         }
-        if (append_one(sb, hits[i].ptr) != 0) {
+        if (append_one(sb, hits[i].ptr, browse) != 0) {
             return -1;
         }
         written++;
@@ -66,23 +68,29 @@ static int append_scored_page(string_buf_t *sb, scored_ptr_t *hits, size_t total
     return page_json_end(sb, total, page);
 }
 
-static int append_track_wrap(string_buf_t *sb, const void *ptr)
+static int append_track_wrap(string_buf_t *sb, const void *ptr,
+                             const browse_index_t *browse)
 {
-    return append_catalog_item_json(sb, ptr);
+    return append_catalog_item_json(sb, ptr, browse);
 }
 
-static int append_artist_wrap(string_buf_t *sb, const void *ptr)
+static int append_artist_wrap(string_buf_t *sb, const void *ptr,
+                              const browse_index_t *browse)
 {
+    (void)browse;
     return append_artist_json(sb, ptr);
 }
 
-static int append_album_wrap(string_buf_t *sb, const void *ptr)
+static int append_album_wrap(string_buf_t *sb, const void *ptr,
+                             const browse_index_t *browse)
 {
+    (void)browse;
     return append_album_json(sb, ptr);
 }
 
 static int append_paged_tracks(string_buf_t *sb, catalog_t *catalog, const char *q,
-                               bool fuzzy, const api_page_t *page)
+                               bool fuzzy, const api_page_t *page,
+                               const browse_index_t *browse)
 {
     size_t count = catalog_count(catalog);
     scored_ptr_t *hits = NULL;
@@ -117,7 +125,7 @@ static int append_paged_tracks(string_buf_t *sb, catalog_t *catalog, const char 
         total++;
     }
 
-    rc = append_scored_page(sb, hits, total, page, append_track_wrap);
+    rc = append_scored_page(sb, hits, total, page, browse, append_track_wrap);
     free(hits);
     return rc;
 }
@@ -158,7 +166,7 @@ static int append_paged_artists(string_buf_t *sb, const browse_index_t *index,
         total++;
     }
 
-    rc = append_scored_page(sb, hits, total, page, append_artist_wrap);
+    rc = append_scored_page(sb, hits, total, page, index, append_artist_wrap);
     free(hits);
     return rc;
 }
@@ -199,7 +207,7 @@ static int append_paged_albums(string_buf_t *sb, const browse_index_t *index,
         total++;
     }
 
-    rc = append_scored_page(sb, hits, total, page, append_album_wrap);
+    rc = append_scored_page(sb, hits, total, page, index, append_album_wrap);
     free(hits);
     return rc;
 }
@@ -252,7 +260,7 @@ void handle_search(const router_match_t *match, void *req, void *res)
         string_buf_append(&sb, ",\"fuzzy\":") != 0 ||
         string_buf_append(&sb, fuzzy ? "true" : "false") != 0 ||
         string_buf_append(&sb, ",\"tracks\":") != 0 ||
-        append_paged_tracks(&sb, catalog, q, fuzzy, &page) != 0 ||
+        append_paged_tracks(&sb, catalog, q, fuzzy, &page, index) != 0 ||
         string_buf_append(&sb, ",\"artists\":") != 0 ||
         append_paged_artists(&sb, index, q, fuzzy, &page) != 0 ||
         string_buf_append(&sb, ",\"albums\":") != 0 ||

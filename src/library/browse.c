@@ -7,6 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct browse_track_link_entry {
+    uint32_t track_id;
+    browse_track_link_t link;
+} browse_track_link_entry_t;
+
 struct browse_index {
     browse_artist_t *artists;
     size_t artist_count;
@@ -14,6 +19,8 @@ struct browse_index {
     browse_album_t *albums;
     size_t album_count;
     size_t album_cap;
+    browse_track_link_entry_t *track_links;
+    size_t track_link_count;
 };
 
 static browse_artist_t *find_artist_by_name(browse_index_t *index, const char *name)
@@ -158,6 +165,20 @@ static int ensure_album_cap(browse_index_t *index)
     return 0;
 }
 
+static int track_link_cmp(const void *a, const void *b)
+{
+    const browse_track_link_entry_t *left = a;
+    const browse_track_link_entry_t *right = b;
+
+    if (left->track_id < right->track_id) {
+        return -1;
+    }
+    if (left->track_id > right->track_id) {
+        return 1;
+    }
+    return 0;
+}
+
 static browse_artist_t *add_artist(browse_index_t *index, const char *name)
 {
     browse_artist_t *artist;
@@ -207,6 +228,8 @@ static browse_album_t *add_album(browse_index_t *index, const char *artist_name,
 browse_index_t *browse_index_build(const catalog_t *catalog)
 {
     browse_index_t *index = calloc(1, sizeof(*index));
+    size_t item_count;
+
     if (index == NULL) {
         return NULL;
     }
@@ -215,7 +238,16 @@ browse_index_t *browse_index_build(const catalog_t *catalog)
         return index;
     }
 
-    for (size_t i = 0; i < catalog_count(catalog); i++) {
+    item_count = catalog_count(catalog);
+    if (item_count > 0) {
+        index->track_links = calloc(item_count, sizeof(*index->track_links));
+        if (index->track_links == NULL) {
+            browse_index_destroy(index);
+            return NULL;
+        }
+    }
+
+    for (size_t i = 0; i < item_count; i++) {
         const catalog_item_t *item = catalog_get(catalog, i);
         browse_artist_t *artist = NULL;
         browse_album_t *album = NULL;
@@ -273,10 +305,25 @@ browse_index_t *browse_index_build(const catalog_t *catalog)
                 album->path_artist[0] = '\0';
             }
             album->track_count++;
+            index->track_links[index->track_link_count].track_id = item->id;
+            index->track_links[index->track_link_count].link.album_id = album->id;
+            index->track_link_count++;
         }
     }
 
     link_album_covers(index, catalog);
+    for (size_t i = 0; i < index->track_link_count; i++) {
+        uint32_t album_id = index->track_links[i].link.album_id;
+
+        if (album_id > 0 && album_id <= index->album_count) {
+            index->track_links[i].link.cover_id =
+                index->albums[album_id - 1].cover_id;
+        }
+    }
+    if (index->track_link_count > 1) {
+        qsort(index->track_links, index->track_link_count,
+              sizeof(*index->track_links), track_link_cmp);
+    }
     return index;
 }
 
@@ -287,6 +334,7 @@ void browse_index_destroy(browse_index_t *index)
     }
     free(index->artists);
     free(index->albums);
+    free(index->track_links);
     free(index);
 }
 
@@ -340,6 +388,33 @@ const browse_album_t *browse_album_find_id(const browse_index_t *index, uint32_t
         }
     }
     return NULL;
+}
+
+bool browse_track_link_find(const browse_index_t *index, uint32_t track_id,
+                            browse_track_link_t *out)
+{
+    size_t low = 0;
+    size_t high;
+
+    if (index == NULL || track_id == 0 || out == NULL) {
+        return false;
+    }
+
+    high = index->track_link_count;
+    while (low < high) {
+        size_t mid = low + (high - low) / 2;
+        const browse_track_link_entry_t *entry = &index->track_links[mid];
+
+        if (entry->track_id < track_id) {
+            low = mid + 1;
+        } else if (entry->track_id > track_id) {
+            high = mid;
+        } else {
+            *out = entry->link;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool browse_album_owns_item(const browse_album_t *album, const catalog_item_t *item)

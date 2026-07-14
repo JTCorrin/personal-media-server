@@ -42,6 +42,11 @@ typedef struct browse_album {
     bool path_group_mixed;
 } browse_album_t;
 
+typedef struct browse_track_link {
+    uint32_t album_id; /* synthetic browse album id */
+    uint32_t cover_id; /* catalog image id; 0 if the album has no cover */
+} browse_track_link_t;
+
 /* Build from catalog. Returns NULL on OOM or NULL catalog. */
 browse_index_t *browse_index_build(const catalog_t *catalog);
 void browse_index_destroy(browse_index_t *index);
@@ -53,6 +58,10 @@ const browse_artist_t *browse_artist_find_id(const browse_index_t *index, uint32
 size_t browse_album_count(const browse_index_t *index);
 const browse_album_t *browse_album_get(const browse_index_t *index, size_t i);
 const browse_album_t *browse_album_find_id(const browse_index_t *index, uint32_t id);
+
+/* Find derived album/cover ids for an audio catalog id. */
+bool browse_track_link_find(const browse_index_t *index, uint32_t track_id,
+                            browse_track_link_t *out);
 
 /* True if audio item belongs to this album (artist+album name match). */
 bool browse_album_owns_item(const browse_album_t *album, const catalog_item_t *item);

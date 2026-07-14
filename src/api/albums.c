@@ -167,7 +167,7 @@ void handle_album_tracks(const router_match_t *match, void *req, void *res)
             if (written > 0 && string_buf_append_char(&sb, ',') != 0) {
                 goto fail;
             }
-            if (append_catalog_item_json(&sb, item) != 0) {
+            if (append_catalog_item_json(&sb, item, index) != 0) {
                 goto fail;
             }
             written++;

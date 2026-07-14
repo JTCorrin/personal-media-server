@@ -246,7 +246,8 @@ void handle_playlist_tracks(const router_match_t *match, void *req, void *res)
             api_context_unlock(ctx);
             goto fail;
         }
-        if (append_catalog_item_json(&sb, item) != 0) {
+        if (append_catalog_item_json(&sb, item,
+                                     api_context_browse_locked(ctx)) != 0) {
             api_context_unlock(ctx);
             goto fail;
         }

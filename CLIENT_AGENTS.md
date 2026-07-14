@@ -67,7 +67,10 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
 - **Track / image** ids are catalog ids (stable across restarts when the server
   uses `--catalog-db`).
 - **Artist / album** ids are synthetic (discovery order). Refetch after album
-  metadata PATCH — regrouping can change album ids.
+  or track metadata PATCH — regrouping can change album ids, including each
+  Track object's `album_id`.
+- A Track's `cover_id` is the album's catalog image id and is stable under the
+  same rules as other image ids.
 - Never send filesystem paths; only numeric ids.
 
 ---
@@ -89,9 +92,15 @@ JSON body shape: `{"error":"<code>"}`. Common cases:
   "genre": null,
   "track_number": null,
   "disc_number": null,
+  "album_id": 1,
+  "cover_id": 3,
   "overridden_fields": []
 }
 ```
+
+`album_id` and `cover_id` are present on every Track response and may be
+`null`. They are enriched consistently in track lists/details, search,
+discover, playlists, favourites, history, and album-track responses.
 
 **Artist:**
 

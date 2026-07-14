@@ -145,6 +145,67 @@ void test_browse_find_and_owns_item(void)
     TEST_ASSERT_NULL(browse_album_find_id(index, 99));
 }
 
+void test_browse_track_links_album_and_cover_ids(void)
+{
+    browse_track_link_t link;
+
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/One/t1.mp3"));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_IMAGE, "A/One/cover.jpg"));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/Two/t2.mp3"));
+    TEST_ASSERT_EQUAL_INT(0, catalog_add(catalog, MEDIA_KIND_AUDIO, "loose.mp3"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+
+    TEST_ASSERT_TRUE(browse_track_link_find(index, 1, &link));
+    TEST_ASSERT_EQUAL_UINT(1, link.album_id);
+    TEST_ASSERT_EQUAL_UINT(2, link.cover_id);
+
+    TEST_ASSERT_TRUE(browse_track_link_find(index, 3, &link));
+    TEST_ASSERT_EQUAL_UINT(2, link.album_id);
+    TEST_ASSERT_EQUAL_UINT(0, link.cover_id);
+
+    TEST_ASSERT_FALSE(browse_track_link_find(index, 2, &link));
+    TEST_ASSERT_FALSE(browse_track_link_find(index, 4, &link));
+    TEST_ASSERT_FALSE(browse_track_link_find(index, 999, &link));
+}
+
+void test_browse_track_links_follow_metadata_regrouping(void)
+{
+    metadata_patch_t patch = {0};
+    browse_track_link_t link;
+
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "A/One/t1.mp3"));
+    TEST_ASSERT_EQUAL_INT(
+        0, catalog_add(catalog, MEDIA_KIND_AUDIO, "B/Two/t2.mp3"));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+    TEST_ASSERT_TRUE(browse_track_link_find(index, 1, &link));
+    TEST_ASSERT_EQUAL_UINT(1, link.album_id);
+    TEST_ASSERT_TRUE(browse_track_link_find(index, 2, &link));
+    TEST_ASSERT_EQUAL_UINT(2, link.album_id);
+
+    browse_index_destroy(index);
+    index = NULL;
+    patch.set_mask = METADATA_FIELD_ARTIST | METADATA_FIELD_ALBUM;
+    strcpy(patch.values.artist, "B");
+    strcpy(patch.values.album, "Two");
+    TEST_ASSERT_EQUAL_INT(0, catalog_apply_metadata_patch(catalog, 1, &patch));
+
+    index = browse_index_build(catalog);
+    TEST_ASSERT_NOT_NULL(index);
+    TEST_ASSERT_EQUAL_UINT(1, browse_album_count(index));
+    TEST_ASSERT_TRUE(browse_track_link_find(index, 1, &link));
+    TEST_ASSERT_EQUAL_UINT(1, link.album_id);
+    TEST_ASSERT_TRUE(browse_track_link_find(index, 2, &link));
+    TEST_ASSERT_EQUAL_UINT(1, link.album_id);
+}
+
 void test_browse_aggregates_common_album_metadata(void)
 {
     metadata_patch_t patch = {0};
@@ -219,6 +280,8 @@ int main(void)
     RUN_TEST(test_browse_cover_absent_when_no_image);
     RUN_TEST(test_browse_ignores_loose_files_without_album);
     RUN_TEST(test_browse_find_and_owns_item);
+    RUN_TEST(test_browse_track_links_album_and_cover_ids);
+    RUN_TEST(test_browse_track_links_follow_metadata_regrouping);
     RUN_TEST(test_browse_aggregates_common_album_metadata);
     RUN_TEST(test_browse_keeps_path_cover_after_album_override);
     RUN_TEST(test_browse_keeps_path_cover_when_tags_define_album);

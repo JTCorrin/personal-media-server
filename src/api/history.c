@@ -66,7 +66,8 @@ void handle_history(const router_match_t *match, void *req, void *res)
         }
         /* Embed track fields then played_unix — reuse catalog item as nested? */
         if (string_buf_append(&sb, "\"track\":") != 0 ||
-            append_catalog_item_json(&sb, item) != 0 ||
+            append_catalog_item_json(&sb, item,
+                                     api_context_browse_locked(ctx)) != 0 ||
             string_buf_append_fmt(&sb, ",\"played_unix\":%lld}",
                                   (long long)entries[i].played_unix) != 0) {
             api_context_unlock(ctx);
